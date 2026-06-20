@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MovieDB</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app">
+    <section class="panel left">
+      <h1>MovieDB</h1>
+      <form id="addForm" class="add-box">
+        <label for="titles">Add movie titles</label>
+        <textarea id="titles" rows="7" placeholder="One title per line"></textarea>
+        <div class="row">
+          <select id="format">
+            <option>DVD</option>
+            <option>Blu-ray</option>
+            <option>Digital</option>
+          </select>
+          <button type="submit">Add movies</button>
+        </div>
+        <p id="status" class="status"></p>
+      </form>
+      <label for="search">Search collection</label>
+      <input id="search" type="search" placeholder="Search any field">
+      <div class="search-fields">
+        <div class="field-toolbar">
+          <span>Search fields</span>
+          <button id="selectAllFields" type="button">All Fields</button>
+          <button id="clearFields" type="button">Clear</button>
+        </div>
+        <div id="fieldList" class="field-list"></div>
+      </div>
+    </section>
+
+    <div class="resizer" data-resizer="left" role="separator" aria-orientation="vertical" aria-label="Resize search column"></div>
+
+    <section class="panel middle">
+      <div class="results-header">
+        <h2>Results</h2>
+        <span id="resultCount" class="result-count"></span>
+      </div>
+      <div class="sort-row">
+        <label for="sortField">Sort by</label>
+        <select id="sortField"></select>
+        <button id="sortDirection" type="button" aria-label="Toggle sort direction">A-Z</button>
+      </div>
+      <div id="results" class="results" tabindex="0" aria-label="Movie results"></div>
+    </section>
+
+    <div class="resizer" data-resizer="middle" role="separator" aria-orientation="vertical" aria-label="Resize results column"></div>
+
+    <section class="panel detail">
+      <div id="empty" class="empty">
+        <h2>Your movie collection</h2>
+        <p>Add titles or search your collection to open a movie record.</p>
+      </div>
+      <form id="movieForm" class="movie-form hidden">
+        <div class="hero">
+          <img id="poster" alt="">
+          <div>
+            <input id="title" class="title-input" placeholder="Title">
+            <div class="row">
+              <select id="movieFormat">
+                <option>DVD</option>
+                <option>Blu-ray</option>
+                <option>Digital</option>
+              </select>
+              <input id="releaseDate" placeholder="Release date">
+              <input id="rating" placeholder="MPA Rating" aria-label="MPA Rating">
+            </div>
+          </div>
+        </div>
+
+        <div class="grid">
+          <label>Genre<input id="genre" placeholder="Drama, Comedy"></label>
+          <label>Studio<input id="studio" placeholder="Studio"></label>
+          <label>Director<input id="directors" placeholder="Director"></label>
+          <label>Producer<input id="producers" placeholder="Producer"></label>
+          <label>Cast<textarea id="cast" rows="3"></textarea></label>
+          <label>Runtime<input id="runtime" placeholder="Runtime"></label>
+          <label>Location<input id="location" placeholder="Shelf, box, room"></label>
+          <label>Source URL<input id="sourceUrl" placeholder="https://"></label>
+          <label>Amazon URL<input id="amazonUrl" placeholder="https://www.amazon.com/dp/..."></label>
+          <label class="wide">Synopsis<textarea id="synopsis" rows="6"></textarea></label>
+          <label class="wide">Notes<textarea id="notes" rows="5"></textarea></label>
+        </div>
+
+        <div class="actions">
+          <button type="submit">Save changes</button>
+          <button id="deleteButton" type="button" class="danger">Delete</button>
+        </div>
+      </form>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

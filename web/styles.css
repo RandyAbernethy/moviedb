@@ -87,7 +87,7 @@ body.resizing {
 }
 
 h1 {
-  margin: 0 0 20px;
+  margin: 0 0 10px;
   border: 1px solid rgba(96, 214, 255, .66);
   border-radius: 8px;
   background:
@@ -99,6 +99,31 @@ h1 {
   padding: 14px 16px;
   text-transform: uppercase;
   box-shadow: 0 10px 28px rgba(0, 0, 0, .24);
+}
+
+.collection-count {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 20px;
+  border: 1px solid rgba(96, 214, 255, .34);
+  border-radius: 8px;
+  background: rgba(238, 248, 255, .08);
+  color: #cbe7fb;
+  padding: 10px 12px;
+}
+
+.collection-count #totalMovies {
+  color: var(--gold);
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.collection-count span:last-child {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
 h2 {
@@ -171,7 +196,20 @@ button {
   color: #fff;
   cursor: pointer;
   font-weight: 700;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .34),
+    inset 0 -3px 0 rgba(0, 0, 0, .22),
+    0 6px 14px rgba(7, 20, 38, .22);
   text-shadow: 0 1px 0 rgba(0, 0, 0, .28);
+  transition: transform .08s ease, box-shadow .08s ease, filter .08s ease;
+}
+
+button:active {
+  box-shadow:
+    inset 0 3px 5px rgba(0, 0, 0, .28),
+    inset 0 0 0 1px rgba(255, 255, 255, .12);
+  filter: brightness(.93);
+  transform: translateY(2px);
 }
 
 button:disabled {
@@ -180,10 +218,10 @@ button:disabled {
 }
 
 .danger {
-  background: #f7fbff;
-  border-color: #d78b8b;
-  color: var(--danger);
-  text-shadow: none;
+  background: linear-gradient(180deg, #ef4a56, #8f111d);
+  border-color: #ff9aa2;
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, .32);
 }
 
 .row,
@@ -226,6 +264,7 @@ button:disabled {
 .field-toolbar button {
   background: rgba(238, 248, 255, .09);
   border-color: rgba(96, 214, 255, .56);
+  box-shadow: none;
   color: var(--cream);
   font-size: 12px;
   padding: 5px 8px;
@@ -267,6 +306,7 @@ button:disabled {
 .sort-row button {
   background: rgba(238, 248, 255, .09);
   border-color: rgba(96, 214, 255, .56);
+  box-shadow: none;
   color: var(--cream);
   min-width: 54px;
   text-shadow: none;

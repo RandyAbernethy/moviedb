@@ -169,6 +169,12 @@ func (s *Store) Get(id string) (Movie, bool) {
 	return m, ok
 }
 
+func (s *Store) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.movies)
+}
+
 func (s *Store) Save(m Movie) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -578,6 +584,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/lookup", s.handleLookup)
 	mux.HandleFunc("/api/movies", s.handleMovies)
 	mux.HandleFunc("/api/movies/", s.handleMovie)
@@ -681,6 +688,14 @@ func (s *Server) handleMovies(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, map[string]int{"totalMovies": s.store.Count()})
 }
 
 func populateRatings(root string, store *Store) error {

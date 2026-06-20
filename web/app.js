@@ -82,7 +82,13 @@ async function loadMovies() {
     params.set("fields", selected.join(","));
   }
   movies = await request(`/api/movies?${params.toString()}`);
+  await loadStats();
   renderResults();
+}
+
+async function loadStats() {
+  const stats = await request("/api/stats");
+  $("totalMovies").textContent = stats.totalMovies;
 }
 
 function renderSortFields() {
@@ -198,7 +204,7 @@ function selectMovie(movie, options = {}) {
   fillForm(current);
   renderResults();
   if (options.focusResult) {
-    focusMovieResult(id);
+    focusMovieResult(movie.id);
   }
 }
 

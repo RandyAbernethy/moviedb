@@ -57,6 +57,11 @@ body {
   color: var(--cream);
 }
 
+.left {
+  display: flex;
+  flex-direction: column;
+}
+
 .detail {
   background:
     linear-gradient(180deg, rgba(22, 119, 255, .14), transparent 260px),
@@ -213,7 +218,7 @@ button:active {
 }
 
 button:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: .65;
 }
 
@@ -289,6 +294,15 @@ button:disabled {
 .field-option input {
   margin: 0;
   padding: 0;
+}
+
+.credit-box {
+  border-top: 1px solid rgba(96, 214, 255, .22);
+  color: rgba(238, 248, 255, .62);
+  font-size: 11px;
+  line-height: 1.35;
+  margin: auto 0 0;
+  padding-top: 16px;
 }
 
 .sort-row {
@@ -385,14 +399,139 @@ button:disabled {
   align-items: start;
 }
 
-#poster {
+.cover-editor {
+  display: grid;
+  align-content: start;
+  align-items: start;
+  gap: 8px;
   width: 170px;
+}
+
+.poster-target {
+  align-items: center;
+  align-self: start;
   aspect-ratio: 2 / 3;
-  object-fit: cover;
+  background:
+    linear-gradient(135deg, rgba(96, 214, 255, .12), transparent),
+    #071426;
   border: 4px solid #9fe8ff;
   border-radius: 8px;
-  background: #071426;
   box-shadow: 0 14px 34px rgba(7, 20, 38, .3);
+  display: grid;
+  flex: none;
+  height: 255px;
+  justify-items: center;
+  max-height: 255px;
+  min-height: 255px;
+  overflow: hidden;
+  position: relative;
+  caret-color: transparent;
+  user-select: none;
+  width: 170px;
+}
+
+.poster-target.empty::before {
+  color: rgba(238, 248, 255, .68);
+  content: "Drop or paste cover art";
+  font-size: 12px;
+  font-weight: 800;
+  max-width: 110px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.poster-target:focus {
+  outline: 3px solid rgba(96, 214, 255, .34);
+  outline-offset: 3px;
+}
+
+#poster {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+}
+
+.poster-target.drop-ready {
+  border-color: var(--gold);
+  box-shadow:
+    0 0 0 4px rgba(96, 214, 255, .24),
+    0 14px 34px rgba(7, 20, 38, .3);
+}
+
+.poster-target.disabled {
+  opacity: .7;
+}
+
+.cover-button {
+  display: grid;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.cover-actions {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.cover-button span,
+.cover-button.cover-delete {
+  border: 1px solid #78dcff;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #2ea8ff, var(--accent-dark));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .34),
+    inset 0 -3px 0 rgba(0, 0, 0, .22),
+    0 6px 14px rgba(7, 20, 38, .18);
+  color: #fff;
+  cursor: pointer;
+  font-size: 9px;
+  line-height: 1.15;
+  min-height: 28px;
+  padding: 5px 6px;
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, .28);
+}
+
+.cover-button.cover-delete {
+  background: linear-gradient(180deg, #ef4a56, #8f111d);
+  border-color: #ff9aa2;
+}
+
+.cover-button:active span,
+.cover-button.cover-delete:active {
+  box-shadow:
+    inset 0 3px 5px rgba(0, 0, 0, .28),
+    inset 0 0 0 1px rgba(255, 255, 255, .12);
+  filter: brightness(.93);
+  transform: translateY(2px);
+}
+
+.cover-upload input {
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  width: 1px;
+}
+
+.cover-upload.disabled span {
+  cursor: not-allowed;
+  filter: grayscale(.4);
+  opacity: .65;
+}
+
+.cover-status {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+  min-height: 18px;
+  text-align: center;
 }
 
 .title-input {
@@ -446,6 +585,6 @@ button:disabled {
   }
 
   #poster {
-    width: 150px;
+    width: 100%;
   }
 }

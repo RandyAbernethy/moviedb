@@ -5,6 +5,30 @@ let current = null;
 let sortAscending = true;
 let columnWidths = loadColumnWidths();
 
+function blankMovie() {
+  return {
+    title: "",
+    format: $("format").value || "DVD",
+    studio: "",
+    directors: [],
+    cast: [],
+    producers: [],
+    credits: {},
+    genre: [],
+    releaseDate: "",
+    runtime: "",
+    rating: "",
+    myRating: "",
+    synopsis: "",
+    sourceUrl: "",
+    amazonUrl: "",
+    location: "",
+    notes: "",
+    externalIds: {},
+    imagePath: "",
+  };
+}
+
 const searchFields = [
   ["title", "Title"],
   ["format", "Format"],
@@ -17,6 +41,7 @@ const searchFields = [
   ["releaseDate", "Release date"],
   ["runtime", "Runtime"],
   ["rating", "MPA Rating"],
+  ["myRating", "MyRating"],
   ["synopsis", "Synopsis"],
   ["sourceUrl", "Source URL"],
   ["amazonUrl", "Amazon URL"],
@@ -44,6 +69,7 @@ const fields = {
   releaseDate: $("releaseDate"),
   runtime: $("runtime"),
   rating: $("rating"),
+  myRating: $("myRating"),
   synopsis: $("synopsis"),
   sourceUrl: $("sourceUrl"),
   amazonUrl: $("amazonUrl"),
@@ -247,13 +273,38 @@ function fillForm(movie) {
   fields.releaseDate.value = movie.releaseDate || "";
   fields.runtime.value = movie.runtime || "";
   fields.rating.value = movie.rating || "";
+  fields.myRating.value = movie.myRating || "";
   fields.synopsis.value = movie.synopsis || "";
   fields.sourceUrl.value = movie.sourceUrl || "";
   fields.amazonUrl.value = movie.amazonUrl || "";
   fields.location.value = movie.location || "";
   fields.notes.value = movie.notes || "";
   $("poster").src = movie.imagePath || "";
-  $("poster").style.visibility = movie.imagePath ? "visible" : "hidden";
+  $("poster").hidden = !movie.imagePath;
+  $("posterTarget").classList.toggle("empty", !movie.imagePath);
+  const isSaved = isSavedMovie(movie);
+  $("refreshButton").disabled = !canRefreshMovie(movie);
+  $("deleteButton").disabled = !isSaved;
+  $("coverArt").disabled = !isSaved;
+  $("deleteCoverArt").disabled = !isSaved || !movie.imagePath;
+  $("posterTarget").classList.toggle("disabled", !isSaved);
+  const coverUpload = $("coverArt").closest ? $("coverArt").closest(".cover-upload") : null;
+  if (coverUpload) {
+    coverUpload.classList.toggle("disabled", !isSaved);
+  }
+  $("coverArt").value = "";
+  $("coverStatus").textContent = "";
+}
+
+function isSavedMovie(movie) {
+  return Boolean(movie && movie.id);
+}
+
+function canRefreshMovie(movie) {
+  if (!movie) {
+    return false;
+  }
+  return isSavedMovie(movie) || Boolean((fields.title.value || movie.title || "").trim());
 }
 
 function readForm() {
@@ -269,6 +320,7 @@ function readForm() {
     releaseDate: fields.releaseDate.value.trim(),
     runtime: fields.runtime.value.trim(),
     rating: fields.rating.value.trim(),
+    myRating: fields.myRating.value,
     synopsis: fields.synopsis.value.trim(),
     sourceUrl: fields.sourceUrl.value.trim(),
     amazonUrl: fields.amazonUrl.value.trim(),
@@ -347,10 +399,10 @@ async function saveMovieCandidate(movie, duplicatePolicy = "") {
   }
 }
 
-async function chooseMovieCandidate(title) {
+async function chooseMovieCandidate(title, format = $("format").value) {
   const candidates = await request("/api/lookup", {
     method: "POST",
-    body: JSON.stringify({ title, format: $("format").value }),
+    body: JSON.stringify({ title, format }),
   });
   const exact = candidates.filter((candidate) => candidate.matchType === "exact");
   if (exact.length === 1) {
@@ -435,15 +487,207 @@ $("sortDirection").addEventListener("click", () => {
 $("movieForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!current) return;
-  current = await request(`/api/movies/${current.id}`, {
-    method: "PUT",
-    body: JSON.stringify(readForm()),
-  });
-  await loadMovies();
+  const movie = readForm();
+  if (!movie.title) {
+    $("status").textContent = "Enter a title before saving the new movie.";
+    fields.title.focus();
+    return;
+  }
+  try {
+    if (current.id) {
+      current = await request(`/api/movies/${current.id}`, {
+        method: "PUT",
+        body: JSON.stringify(movie),
+      });
+    } else {
+      const added = await request("/api/movies", {
+        method: "POST",
+        body: JSON.stringify({ movie }),
+      });
+      current = added[0] || null;
+    }
+    if (current) {
+      fillForm(current);
+    }
+    await loadMovies();
+    $("status").textContent = `Saved ${current ? current.title : "movie"}.`;
+  } catch (error) {
+    if (error.status === 409) {
+      $("status").textContent = "That title already exists. Enter a different title or a different release date before saving.";
+      fields.releaseDate.focus();
+      return;
+    }
+    $("status").textContent = error.message;
+  }
+});
+
+function startNewMovie() {
+  selectMovie(blankMovie());
+  $("status").textContent = "New blank movie. Enter a unique title or title/release-date, then click Save Changes.";
+  fields.title.focus();
+}
+
+$("newButton").addEventListener("click", startNewMovie);
+$("emptyNewButton").addEventListener("click", startNewMovie);
+
+$("refreshButton").addEventListener("click", async () => {
+  if (!current) return;
+  const draft = readForm();
+  if (!draft.title) {
+    $("status").textContent = "Enter a title before updating from source.";
+    fields.title.focus();
+    return;
+  }
+  $("status").textContent = `Loading source updates for ${draft.title}...`;
+  try {
+    if (current.id) {
+      current = await request(`/api/movies/${current.id}/refresh`, { method: "POST" });
+    } else {
+      const candidate = await chooseMovieCandidate(draft.title, draft.format);
+      if (!candidate) {
+        $("status").textContent = `No source update selected for ${draft.title}.`;
+        return;
+      }
+      current = mergeDraftWithSource(draft, candidate.movie);
+    }
+    fillForm(current);
+    $("status").textContent = `Loaded source updates for ${current.title}. Click "Save changes" to write them to the database.`;
+  } catch (error) {
+    $("status").textContent = error.message;
+  }
+});
+
+fields.title.addEventListener("input", () => {
+  if (current && !current.id) {
+    $("refreshButton").disabled = !canRefreshMovie(current);
+  }
+});
+
+function mergeDraftWithSource(draft, source) {
+  const merged = {
+    ...source,
+    id: "",
+    createdAt: undefined,
+    updatedAt: undefined,
+    format: draft.format || source.format,
+    location: draft.location,
+    notes: draft.notes,
+    myRating: draft.myRating,
+    amazonUrl: draft.amazonUrl || source.amazonUrl,
+  };
+  return merged;
+}
+
+$("coverArt").addEventListener("change", async (event) => {
+  if (!current || !current.id || !event.target.files.length) {
+    return;
+  }
+  await uploadCoverArt(event.target.files[0]);
+});
+
+for (const target of [$("posterTarget"), $("poster")]) {
+  target.addEventListener("paste", handleCoverPaste);
+}
+
+$("posterTarget").addEventListener("beforeinput", (event) => {
+  event.preventDefault();
+});
+
+document.addEventListener("paste", (event) => {
+  if (document.activeElement === $("posterTarget") || $("posterTarget").contains(document.activeElement)) {
+    handleCoverPaste(event);
+  }
+});
+
+$("posterTarget").addEventListener("dragover", (event) => {
+  event.preventDefault();
+  $("posterTarget").classList.add("drop-ready");
+});
+
+$("posterTarget").addEventListener("dragleave", () => {
+  $("posterTarget").classList.remove("drop-ready");
+});
+
+$("posterTarget").addEventListener("drop", async (event) => {
+  event.preventDefault();
+  $("posterTarget").classList.remove("drop-ready");
+  const file = [...event.dataTransfer.files].find((item) => item.type.startsWith("image/"));
+  if (file) {
+    await uploadCoverArt(file);
+  }
+});
+
+function coverFileFromClipboard(event) {
+  const files = [...(event.clipboardData?.files || [])];
+  const itemFiles = [...(event.clipboardData?.items || [])]
+    .filter((item) => item.kind === "file")
+    .map((item) => item.getAsFile())
+    .filter(Boolean);
+  return [...files, ...itemFiles].find((item) => item.type.startsWith("image/"));
+}
+
+async function handleCoverPaste(event) {
+  if (!current || !current.id) {
+    return;
+  }
+  const file = coverFileFromClipboard(event);
+  if (file) {
+    event.preventDefault();
+    await uploadCoverArt(file);
+  }
+}
+
+async function uploadCoverArt(file) {
+  if (!current || !current.id || !file) {
+    return;
+  }
+  const body = new FormData();
+  body.append("cover", file);
+  $("coverStatus").textContent = "Uploading cover art...";
+  try {
+    const response = await fetch(`/api/movies/${current.id}/image`, {
+      method: "POST",
+      body,
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    current = await response.json();
+    fillForm(current);
+    renderResults();
+    $("coverStatus").textContent = "Cover art updated.";
+  } catch (error) {
+    $("coverStatus").textContent = error.message;
+  }
+}
+
+$("deleteCoverArt").addEventListener("click", async () => {
+  if (!current || !current.id || !current.imagePath) {
+    return;
+  }
+  if (!confirm(`Delete cover art for ${current.title}?`)) {
+    return;
+  }
+  $("coverStatus").textContent = "Deleting cover art...";
+  try {
+    const response = await fetch(`/api/movies/${current.id}/image`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    current = await response.json();
+    fillForm(current);
+    renderResults();
+    $("coverStatus").textContent = "Cover art deleted.";
+    $("posterTarget").focus();
+  } catch (error) {
+    $("coverStatus").textContent = error.message;
+  }
 });
 
 $("deleteButton").addEventListener("click", async () => {
-  if (!current || !confirm(`Delete ${current.title}?`)) return;
+  if (!current || !current.id || !confirm(`Delete ${current.title}?`)) return;
   await request(`/api/movies/${current.id}`, { method: "DELETE" });
   current = null;
   $("movieForm").classList.add("hidden");

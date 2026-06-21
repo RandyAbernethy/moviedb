@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"io/fs"
 	"log"
 	"math/big"
 	"mime"
@@ -23,6 +24,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +32,8 @@ import (
 
 //go:embed web/*
 var webFS embed.FS
+
+const appPort = 8765
 
 type Movie struct {
 	ID          string            `json:"id"`
@@ -44,6 +48,7 @@ type Movie struct {
 	ReleaseDate string            `json:"releaseDate"`
 	Runtime     string            `json:"runtime"`
 	Rating      string            `json:"rating"`
+	MyRating    string            `json:"myRating"`
 	Synopsis    string            `json:"synopsis"`
 	SourceURL   string            `json:"sourceUrl"`
 	AmazonURL   string            `json:"amazonUrl"`
@@ -66,6 +71,21 @@ type Store struct {
 	mu     sync.RWMutex
 	path   string
 	movies map[string]Movie
+}
+
+type hostList []string
+
+func (h *hostList) String() string {
+	return strings.Join(*h, ",")
+}
+
+func (h *hostList) Set(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return errors.New("host cannot be empty")
+	}
+	*h = append(*h, value)
+	return nil
 }
 
 type duplicatePolicy string
@@ -152,6 +172,12 @@ func (s *Store) All(query string, fields []string) []Movie {
 	fieldSet := searchFieldSet(fields)
 	out := make([]Movie, 0, len(s.movies))
 	for _, m := range s.movies {
+		if query == "" && isOnlyMyRatingSearch(fieldSet) {
+			if strings.TrimSpace(m.MyRating) == "" {
+				out = append(out, m)
+			}
+			continue
+		}
 		if query == "" || movieMatches(m, query, fieldSet) {
 			out = append(out, m)
 		}
@@ -291,11 +317,33 @@ func movieMatches(m Movie, q string, fields map[string]bool) bool {
 		return false
 	}
 	for field := range fields {
+		if field == "myRating" && isNumericSearch(q) {
+			if strings.TrimSpace(m.MyRating) == q {
+				return true
+			}
+			continue
+		}
 		if strings.Contains(strings.ToLower(movieFieldText(m, field)), q) {
 			return true
 		}
 	}
 	return false
+}
+
+func isNumericSearch(q string) bool {
+	if q == "" {
+		return false
+	}
+	for _, r := range q {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func isOnlyMyRatingSearch(fields map[string]bool) bool {
+	return len(fields) == 1 && fields["myRating"]
 }
 
 func searchFieldSet(fields []string) map[string]bool {
@@ -332,6 +380,7 @@ func searchableFields() []string {
 		"releaseDate",
 		"runtime",
 		"rating",
+		"myRating",
 		"synopsis",
 		"sourceUrl",
 		"amazonUrl",
@@ -365,6 +414,8 @@ func movieFieldText(m Movie, field string) string {
 		return m.Runtime
 	case "rating":
 		return m.Rating
+	case "myRating":
+		return m.MyRating
 	case "synopsis":
 		return m.Synopsis
 	case "sourceUrl":
@@ -480,6 +531,7 @@ func mergeMoviesPreferNew(old, new Movie) Movie {
 	out.ReleaseDate = preferString(new.ReleaseDate, old.ReleaseDate)
 	out.Runtime = preferString(new.Runtime, old.Runtime)
 	out.Rating = preferString(new.Rating, old.Rating)
+	out.MyRating = preferString(new.MyRating, old.MyRating)
 	out.Synopsis = preferString(new.Synopsis, old.Synopsis)
 	out.SourceURL = preferString(new.SourceURL, old.SourceURL)
 	out.AmazonURL = preferString(new.AmazonURL, old.AmazonURL)
@@ -506,6 +558,7 @@ func mergeMoviesPreferOld(old, new Movie) Movie {
 	out.ReleaseDate = preferString(old.ReleaseDate, new.ReleaseDate)
 	out.Runtime = preferString(old.Runtime, new.Runtime)
 	out.Rating = preferString(old.Rating, new.Rating)
+	out.MyRating = preferString(old.MyRating, new.MyRating)
 	out.Synopsis = preferString(old.Synopsis, new.Synopsis)
 	out.SourceURL = preferString(old.SourceURL, new.SourceURL)
 	out.AmazonURL = preferString(old.AmazonURL, new.AmazonURL)
@@ -534,6 +587,7 @@ func mergeMoviesRandom(a, b Movie) Movie {
 	out.ReleaseDate = randomString(a.ReleaseDate, b.ReleaseDate)
 	out.Runtime = randomString(a.Runtime, b.Runtime)
 	out.Rating = randomString(a.Rating, b.Rating)
+	out.MyRating = randomString(a.MyRating, b.MyRating)
 	out.Synopsis = randomString(a.Synopsis, b.Synopsis)
 	out.SourceURL = randomString(a.SourceURL, b.SourceURL)
 	out.AmazonURL = randomString(a.AmazonURL, b.AmazonURL)
@@ -556,7 +610,16 @@ type Server struct {
 
 func main() {
 	populateRatingsFlag := flag.Bool("populate-ratings", false, "populate missing MPA ratings in data/movies.json")
+	port := flag.Int("port", appPort, "TCP port to listen on")
+	var hosts hostList
+	flag.Var(&hosts, "host", "host interface to listen on; may be repeated")
 	flag.Parse()
+	if !validPort(*port) {
+		log.Fatalf("port must be between 1 and 65535, got %d", *port)
+	}
+	if len(hosts) == 0 {
+		hosts = hostList{"127.0.0.1"}
+	}
 
 	root, err := os.Getwd()
 	if err != nil {
@@ -589,16 +652,65 @@ func main() {
 	mux.HandleFunc("/api/movies", s.handleMovies)
 	mux.HandleFunc("/api/movies/", s.handleMovie)
 	mux.Handle("/images/", http.StripPrefix("/images/", http.FileServer(http.Dir(s.imageDir))))
-	mux.Handle("/", http.FileServer(http.FS(webFS)))
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	webRoot, err := fs.Sub(webFS, "web")
 	if err != nil {
 		log.Fatal(err)
 	}
-	addr := "http://" + ln.Addr().String() + "/web/"
-	fmt.Println("MovieDB is running at", addr)
-	go openBrowser(addr)
-	log.Fatal(http.Serve(ln, mux))
+	mux.Handle("/moviedb/", http.StripPrefix("/moviedb/", http.FileServer(http.FS(webRoot))))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/moviedb/", http.StatusFound)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	listeners, err := listenOnHosts(hosts, *port)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, ln := range listeners {
+		fmt.Println("MovieDB is running at", browserURLForListener(ln))
+	}
+	go openBrowser(browserURLForListener(listeners[0]))
+	errs := make(chan error, len(listeners))
+	for _, ln := range listeners {
+		go func(listener net.Listener) {
+			errs <- http.Serve(listener, mux)
+		}(ln)
+	}
+	log.Fatal(<-errs)
+}
+
+func listenOnHosts(hosts []string, port int) ([]net.Listener, error) {
+	listeners := make([]net.Listener, 0, len(hosts))
+	for _, host := range hosts {
+		addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			for _, existing := range listeners {
+				_ = existing.Close()
+			}
+			return nil, fmt.Errorf("listen on %s: %w", addr, err)
+		}
+		listeners = append(listeners, ln)
+	}
+	return listeners, nil
+}
+
+func validPort(port int) bool {
+	return port >= 1 && port <= 65535
+}
+
+func browserURLForListener(ln net.Listener) string {
+	host, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		return "http://" + ln.Addr().String() + "/moviedb/"
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port) + "/moviedb/"
 }
 
 func (s *Server) handleMovies(w http.ResponseWriter, r *http.Request) {
@@ -618,6 +730,11 @@ func (s *Server) handleMovies(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Movie != nil {
 			m := *req.Movie
+			m.Title = strings.TrimSpace(m.Title)
+			if m.Title == "" {
+				http.Error(w, "title is required", http.StatusBadRequest)
+				return
+			}
 			if m.ID == "" {
 				m.ID = newID()
 			}
@@ -825,8 +942,24 @@ func (s *Server) handleLookup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMovie(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/movies/")
+	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/movies/"), "/"), "/")
+	id := ""
+	if len(parts) > 0 {
+		id = parts[0]
+	}
 	if id == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "image" {
+		s.handleMovieImage(w, r, id)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "refresh" {
+		s.handleMovieRefresh(w, r, id)
+		return
+	}
+	if len(parts) > 1 {
 		http.NotFound(w, r)
 		return
 	}
@@ -845,12 +978,21 @@ func (s *Server) handleMovie(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		m.ID = id
-		if old, ok := s.store.Get(id); ok {
+		var old Movie
+		var hadOld bool
+		old, hadOld = s.store.Get(id)
+		if hadOld {
 			m.CreatedAt = old.CreatedAt
 		}
 		if err := s.store.Save(m); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if hadOld && old.ImagePath != "" && m.ImagePath != "" && old.ImagePath != m.ImagePath && !s.imagePathUsedByAnotherMovie(id, old.ImagePath) {
+			if err := s.deleteMovieImageFile(old.ImagePath); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
 		writeJSON(w, m)
 	case http.MethodDelete:
@@ -862,6 +1004,96 @@ func (s *Server) handleMovie(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) handleMovieRefresh(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	m, ok := s.store.Get(id)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	refreshed, err := s.refreshMovieFromSource(ctx, m)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, refreshed)
+}
+
+func (s *Server) handleMovieImage(w http.ResponseWriter, r *http.Request, id string) {
+	switch r.Method {
+	case http.MethodPost:
+		s.handleMovieImageUpload(w, r, id)
+	case http.MethodDelete:
+		s.handleMovieImageDelete(w, r, id)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleMovieImageUpload(w http.ResponseWriter, r *http.Request, id string) {
+	m, ok := s.store.Get(id)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseMultipartForm(25 << 20); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	file, header, err := r.FormFile("cover")
+	if err != nil {
+		http.Error(w, "cover image is required", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	imagePath, err := s.saveUploadedImage(&m, file, header.Filename)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	m.ImagePath = imagePath
+	if err := s.store.Save(m); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, m)
+}
+
+func (s *Server) handleMovieImageDelete(w http.ResponseWriter, r *http.Request, id string) {
+	m, ok := s.store.Get(id)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	oldPath := m.ImagePath
+	m.ImagePath = ""
+	if err := s.store.Save(m); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if oldPath != "" && !s.imagePathUsedByAnotherMovie(id, oldPath) {
+		if err := s.deleteMovieImageFile(oldPath); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	writeJSON(w, m)
+}
+
+func (s *Server) imagePathUsedByAnotherMovie(movieID, imagePath string) bool {
+	for _, movie := range s.store.All("", nil) {
+		if movie.ID != movieID && movie.ImagePath == imagePath {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) lookupCandidates(ctx context.Context, title, format string) ([]LookupCandidate, error) {
@@ -992,6 +1224,51 @@ func (s *Server) lookupMovie(ctx context.Context, m Movie) (Movie, error) {
 		errs = append(errs, "Wikidata: "+err.Error())
 	}
 	return m, errors.New(strings.Join(errs, "; "))
+}
+
+func (s *Server) refreshMovieFromSource(ctx context.Context, old Movie) (Movie, error) {
+	refreshed := old
+	var errs []string
+	tmdbKey, tmdbToken := strings.TrimSpace(os.Getenv("TMDB_API_KEY")), strings.TrimSpace(os.Getenv("TMDB_BEARER_TOKEN"))
+	if tmdbID := strings.TrimSpace(old.ExternalIDs["tmdb"]); tmdbID != "" && (tmdbKey != "" || tmdbToken != "") {
+		if id, err := strconv.Atoi(tmdbID); err == nil {
+			if out, err := s.enrichTMDbMovie(ctx, old, id, tmdbKey, tmdbToken); err == nil {
+				return preserveLocalMovieFields(old, out), nil
+			} else {
+				errs = append(errs, "TMDb: "+err.Error())
+			}
+		}
+	}
+	if key := strings.TrimSpace(os.Getenv("OMDB_API_KEY")); key != "" {
+		if imdb := strings.TrimSpace(old.ExternalIDs["imdb"]); imdb != "" {
+			if out, err := s.lookupOMDbByID(ctx, old, key, imdb); err == nil {
+				return preserveLocalMovieFields(old, out), nil
+			} else {
+				errs = append(errs, "OMDb: "+err.Error())
+			}
+		}
+	}
+	if out, err := s.lookupMovie(ctx, refreshed); err == nil {
+		return preserveLocalMovieFields(old, out), nil
+	} else {
+		errs = append(errs, err.Error())
+	}
+	return old, errors.New(strings.Join(errs, "; "))
+}
+
+func preserveLocalMovieFields(old, refreshed Movie) Movie {
+	refreshed.ID = old.ID
+	refreshed.CreatedAt = old.CreatedAt
+	refreshed.UpdatedAt = time.Now()
+	refreshed.Format = old.Format
+	refreshed.Location = old.Location
+	refreshed.Notes = old.Notes
+	refreshed.MyRating = old.MyRating
+	refreshed.AmazonURL = preferString(old.AmazonURL, refreshed.AmazonURL)
+	if refreshed.ImagePath == "" {
+		refreshed.ImagePath = old.ImagePath
+	}
+	return refreshed
 }
 
 func (s *Server) lookupTMDb(ctx context.Context, m Movie, apiKey, bearerToken string) (Movie, error) {
@@ -1176,6 +1453,15 @@ func (s *Server) searchTMDbWidened(ctx context.Context, title, apiKey, bearerTok
 
 func (s *Server) lookupOMDb(ctx context.Context, m Movie, key string) (Movie, error) {
 	u := "https://www.omdbapi.com/?apikey=" + url.QueryEscape(key) + "&plot=full&r=json&t=" + url.QueryEscape(m.Title)
+	return s.lookupOMDbURL(ctx, m, u)
+}
+
+func (s *Server) lookupOMDbByID(ctx context.Context, m Movie, key, imdbID string) (Movie, error) {
+	u := "https://www.omdbapi.com/?apikey=" + url.QueryEscape(key) + "&plot=full&r=json&i=" + url.QueryEscape(imdbID)
+	return s.lookupOMDbURL(ctx, m, u)
+}
+
+func (s *Server) lookupOMDbURL(ctx context.Context, m Movie, u string) (Movie, error) {
 	var res struct {
 		Response   string
 		Error      string
@@ -1505,6 +1791,62 @@ func (s *Server) cacheImage(ctx context.Context, m *Movie, imageURL string) erro
 		return err
 	}
 	m.ImagePath = s.imageBase + name
+	return nil
+}
+
+func (s *Server) saveUploadedImage(m *Movie, file io.Reader, originalName string) (string, error) {
+	limited := io.LimitReader(file, 20<<20)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return "", err
+	}
+	if len(data) == 0 {
+		return "", errors.New("uploaded image is empty")
+	}
+	contentType := http.DetectContentType(data)
+	if !strings.HasPrefix(contentType, "image/") {
+		return "", errors.New("uploaded file is not an image")
+	}
+	ext := ".jpg"
+	if exts, _ := mime.ExtensionsByType(contentType); len(exts) > 0 {
+		ext = exts[0]
+	} else if originalExt := strings.ToLower(filepath.Ext(originalName)); originalExt != "" {
+		ext = originalExt
+	}
+	name := safeFilePart(m.ID) + "-cover-" + time.Now().Format("20060102150405") + ext
+	path := filepath.Join(s.imageDir, name)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return "", err
+	}
+	return s.imageBase + name, nil
+}
+
+func (s *Server) deleteMovieImageFile(imagePath string) error {
+	if strings.TrimSpace(imagePath) == "" {
+		return nil
+	}
+	if !strings.HasPrefix(imagePath, s.imageBase) {
+		return nil
+	}
+	name := strings.TrimPrefix(imagePath, s.imageBase)
+	if name == "" || strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
+		return fmt.Errorf("refusing to delete unsafe image path %q", imagePath)
+	}
+	target := filepath.Join(s.imageDir, name)
+	cleanDir, err := filepath.Abs(s.imageDir)
+	if err != nil {
+		return err
+	}
+	cleanTarget, err := filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	if filepath.Dir(cleanTarget) != cleanDir {
+		return fmt.Errorf("refusing to delete image outside image directory")
+	}
+	if err := os.Remove(cleanTarget); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	return nil
 }
 

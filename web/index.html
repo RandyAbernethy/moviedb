@@ -9,7 +9,7 @@
 <body>
   <main class="app">
     <section class="panel left">
-      <h1>MovieDB</h1>
+      <h1>MOVIE DB</h1>
       <div class="collection-count">
         <span id="totalMovies">0</span>
         <span>movies in collection</span>
@@ -37,6 +37,7 @@
         </div>
         <div id="fieldList" class="field-list"></div>
       </div>
+      <p class="credit-box">The Swingin' on a Star MovieDB was created by Codex and Randy Abernethy (but mostly Codex).</p>
     </section>
 
     <div class="resizer" data-resizer="left" role="separator" aria-orientation="vertical" aria-label="Resize search column"></div>
@@ -60,10 +61,23 @@
       <div id="empty" class="empty">
         <h2>Your movie collection</h2>
         <p>Add titles or search your collection to open a movie record.</p>
+        <button id="emptyNewButton" type="button">New</button>
       </div>
       <form id="movieForm" class="movie-form hidden">
         <div class="hero">
-          <img id="poster" alt="">
+          <div class="cover-editor">
+            <div id="posterTarget" class="poster-target" tabindex="0" contenteditable="true" spellcheck="false" aria-label="Movie cover art. Drop or paste an image here.">
+              <img id="poster" alt="">
+            </div>
+            <div class="cover-actions">
+              <label class="cover-button cover-upload">
+                <span>Change Cover Art</span>
+                <input id="coverArt" type="file" accept="image/*">
+              </label>
+              <button id="deleteCoverArt" type="button" class="cover-button cover-delete">Delete Cover Art</button>
+            </div>
+            <p id="coverStatus" class="cover-status" aria-live="polite"></p>
+          </div>
           <div>
             <input id="title" class="title-input" placeholder="Title">
             <div class="row">
@@ -74,6 +88,19 @@
               </select>
               <input id="releaseDate" placeholder="Release date">
               <input id="rating" placeholder="MPA Rating" aria-label="MPA Rating">
+              <select id="myRating" aria-label="MyRating">
+                <option value="">MyRating</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="10">10</option>
+              </select>
             </div>
           </div>
         </div>
@@ -85,7 +112,7 @@
           <label>Producer<input id="producers" placeholder="Producer"></label>
           <label>Cast<textarea id="cast" rows="3"></textarea></label>
           <label>Runtime<input id="runtime" placeholder="Runtime"></label>
-          <label>Location<input id="location" placeholder="Shelf, box, room"></label>
+          <label>Location<input id="location" placeholder="Binder, shelf, box, room"></label>
           <label>Source URL<input id="sourceUrl" placeholder="https://"></label>
           <label>Amazon URL<input id="amazonUrl" placeholder="https://www.amazon.com/dp/..."></label>
           <label class="wide">Synopsis<textarea id="synopsis" rows="6"></textarea></label>
@@ -93,7 +120,9 @@
         </div>
 
         <div class="actions">
+          <button id="newButton" type="button">New</button>
           <button type="submit">Save changes</button>
+          <button id="refreshButton" type="button">Update from source</button>
           <button id="deleteButton" type="button" class="danger">Delete</button>
         </div>
       </form>

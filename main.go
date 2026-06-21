@@ -9,11 +9,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"html"
 	"io"
 	"io/fs"
 	"log"
-	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -55,6 +53,18 @@ var allowedImageExtensions = map[string]bool{
 	".png":  true,
 	".webp": true,
 }
+
+var (
+	yearInParensOrStandaloneRE = regexp.MustCompile(`\(\d{4}\)|\b\d{4}\b`)
+	nonAlnumLowerRE            = regexp.MustCompile(`[^a-z0-9]+`)
+	releaseYearRE              = regexp.MustCompile(`\b(18|19|20|21)\d{2}\b`)
+	asinPathRE                 = regexp.MustCompile(`/(?:dp|gp/product)/([A-Z0-9]{10})`)
+	whitespaceRE               = regexp.MustCompile(`\s+`)
+	parentheticalRE            = regexp.MustCompile(`\([^)]*\)`)
+	nonAlnumTitleRE            = regexp.MustCompile(`[^A-Za-z0-9]+`)
+)
+
+// Domain models
 
 type Movie struct {
 	ID          string            `json:"id"`
@@ -118,6 +128,8 @@ const (
 	duplicateOverwrite duplicatePolicy = "overwrite"
 )
 
+// Store
+
 func NewStore(path string) (*Store, error) {
 	s := &Store{path: path, movies: map[string]Movie{}}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -179,7 +191,7 @@ func (s *Store) MergeDuplicates() (int, error) {
 		if !found {
 			break
 		}
-		mergedMovie := mergeMoviesPreferOld(left, right)
+		mergedMovie := mergeMoviesPreferNewer(left, right)
 		delete(s.movies, left.ID)
 		delete(s.movies, right.ID)
 		s.movies[mergedMovie.ID] = mergedMovie
@@ -234,14 +246,7 @@ func (s *Store) Save(m Movie) error {
 		return fmt.Errorf("movie duplicates existing record %q", duplicate.Title)
 	}
 	now := time.Now()
-	if m.ID == "" {
-		m.ID = newID()
-		m.CreatedAt = now
-	}
-	if m.CreatedAt.IsZero() {
-		m.CreatedAt = now
-	}
-	m.UpdatedAt = now
+	m = normalizeMovieForStorage(m, "", now)
 	s.movies[m.ID] = m
 	return s.flushLocked()
 }
@@ -250,13 +255,7 @@ func (s *Store) AddResolvingDuplicate(m Movie, policy duplicatePolicy) (Movie, *
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
-	if m.ID == "" {
-		m.ID = newID()
-	}
-	if m.CreatedAt.IsZero() {
-		m.CreatedAt = now
-	}
-	m.UpdatedAt = now
+	m = normalizeMovieForStorage(m, "", now)
 	if duplicate, ok := s.findDuplicateLocked("", m); ok {
 		switch policy {
 		case duplicateMergeNew:
@@ -502,8 +501,8 @@ func amazonIdentity(m Movie) string {
 
 func normalizedMovieTitle(title string) string {
 	title = strings.ToLower(strings.TrimSpace(title))
-	title = regexp.MustCompile(`\(\d{4}\)|\b\d{4}\b`).ReplaceAllString(title, "")
-	title = regexp.MustCompile(`[^a-z0-9]+`).ReplaceAllString(title, " ")
+	title = yearInParensOrStandaloneRE.ReplaceAllString(title, "")
+	title = nonAlnumLowerRE.ReplaceAllString(title, " ")
 	title = strings.TrimSpace(title)
 	return title
 }
@@ -540,8 +539,28 @@ func normalizedReleaseDate(value string) string {
 }
 
 func releaseYear(value string) string {
-	match := regexp.MustCompile(`\b(18|19|20|21)\d{2}\b`).FindString(value)
+	match := releaseYearRE.FindString(value)
 	return match
+}
+
+func normalizeMovieForStorage(m Movie, fallbackFormat string, now time.Time) Movie {
+	if m.ID == "" {
+		m.ID = newID()
+	}
+	if m.CreatedAt.IsZero() {
+		m.CreatedAt = now
+	}
+	if strings.TrimSpace(m.Format) == "" {
+		m.Format = defaultString(fallbackFormat, "DVD")
+	}
+	if m.Credits == nil {
+		m.Credits = map[string]string{}
+	}
+	if m.ExternalIDs == nil {
+		m.ExternalIDs = map[string]string{}
+	}
+	m.UpdatedAt = now
+	return m
 }
 
 func mergeMoviesPreferNew(old, new Movie) Movie {
@@ -567,6 +586,13 @@ func mergeMoviesPreferNew(old, new Movie) Movie {
 	out.ExternalIDs = mergeMapPreferNew(old.ExternalIDs, new.ExternalIDs)
 	out.UpdatedAt = time.Now()
 	return out
+}
+
+func mergeMoviesPreferNewer(a, b Movie) Movie {
+	if b.UpdatedAt.After(a.UpdatedAt) {
+		return mergeMoviesPreferNew(a, b)
+	}
+	return mergeMoviesPreferOld(a, b)
 }
 
 func mergeMoviesPreferOld(old, new Movie) Movie {
@@ -602,6 +628,8 @@ type Server struct {
 	imageDir  string
 	imageBase string
 }
+
+// Application startup
 
 func main() {
 	dbPath := flag.String("db-path", "", "database directory containing movies.json and images/")
@@ -692,6 +720,8 @@ func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
 }
+
+// Networking and security
 
 func listenOnHosts(hosts []string, port int) ([]net.Listener, error) {
 	listeners := make([]net.Listener, 0, len(hosts))
@@ -939,6 +969,8 @@ func isPublicInternetIP(ip net.IP) bool {
 		!ip.IsLinkLocalUnicast() &&
 		!ip.IsUnspecified()
 }
+
+// HTTP handlers
 
 func (s *Server) handleMovies(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -1280,19 +1312,20 @@ func (s *Server) imagePathUsedByAnotherMovie(movieID, imagePath string) bool {
 	return false
 }
 
+// Lookup orchestration
+
 func (s *Server) lookupCandidates(ctx context.Context, title, format string) ([]LookupCandidate, error) {
 	if isAmazonURL(title) {
 		m := newCandidateBase(title, format)
 		m.AmazonURL = title
-		enriched, err := s.lookupAmazon(ctx, m, title)
-		if err != nil {
-			return nil, err
+		if asin := amazonASIN(title); asin != "" {
+			m.ExternalIDs["amazon_asin"] = asin
 		}
 		return []LookupCandidate{{
-			Movie:       enriched,
+			Movie:       m,
 			MatchType:   "exact",
 			Provider:    "Amazon",
-			Description: "Amazon product URL",
+			Description: "Stored Amazon product URL without scraping",
 		}}, nil
 	}
 
@@ -1366,43 +1399,28 @@ func candidateDescription(m Movie) string {
 func (s *Server) lookupMovie(ctx context.Context, m Movie) (Movie, error) {
 	var errs []string
 	if m.AmazonURL != "" {
-		if out, err := s.lookupAmazon(ctx, m, m.AmazonURL); err == nil {
-			m = out
-		} else {
-			errs = append(errs, "Amazon: "+err.Error())
+		if m.ExternalIDs == nil {
+			m.ExternalIDs = map[string]string{}
+		}
+		if asin := amazonASIN(m.AmazonURL); asin != "" {
+			m.ExternalIDs["amazon_asin"] = asin
 		}
 	}
 	if tmdbKey, tmdbToken := strings.TrimSpace(os.Getenv("TMDB_API_KEY")), strings.TrimSpace(os.Getenv("TMDB_BEARER_TOKEN")); tmdbKey != "" || tmdbToken != "" {
 		if out, err := s.lookupTMDb(ctx, m, tmdbKey, tmdbToken); err == nil {
-			m = out
-			if shouldSearchAmazon() && m.AmazonURL == "" {
-				if withAmazon, err := s.searchAndScrapeAmazon(ctx, m); err == nil {
-					m = withAmazon
-				}
-			}
-			return m, nil
+			return out, nil
 		} else {
 			errs = append(errs, "TMDb: "+err.Error())
 		}
 	}
 	if key := strings.TrimSpace(os.Getenv("OMDB_API_KEY")); key != "" {
 		if out, err := s.lookupOMDb(ctx, m, key); err == nil {
-			if shouldSearchAmazon() && out.AmazonURL == "" {
-				if withAmazon, err := s.searchAndScrapeAmazon(ctx, out); err == nil {
-					out = withAmazon
-				}
-			}
 			return out, nil
 		} else {
 			errs = append(errs, "OMDb: "+err.Error())
 		}
 	}
 	if out, err := s.lookupWikidata(ctx, m); err == nil {
-		if shouldSearchAmazon() && out.AmazonURL == "" {
-			if withAmazon, err := s.searchAndScrapeAmazon(ctx, out); err == nil {
-				out = withAmazon
-			}
-		}
 		return out, nil
 	} else {
 		errs = append(errs, "Wikidata: "+err.Error())
@@ -1454,6 +1472,8 @@ func preserveLocalMovieFields(old, refreshed Movie) Movie {
 	}
 	return refreshed
 }
+
+// TMDb provider
 
 func (s *Server) lookupTMDb(ctx context.Context, m Movie, apiKey, bearerToken string) (Movie, error) {
 	results, err := s.searchTMDb(ctx, m.Title, apiKey, bearerToken)
@@ -1635,6 +1655,8 @@ func (s *Server) searchTMDbWidened(ctx context.Context, title, apiKey, bearerTok
 	return nil, errors.New("movie not found")
 }
 
+// OMDb provider
+
 func (s *Server) lookupOMDb(ctx context.Context, m Movie, key string) (Movie, error) {
 	u := "https://www.omdbapi.com/?apikey=" + url.QueryEscape(key) + "&plot=full&r=json&t=" + url.QueryEscape(m.Title)
 	return s.lookupOMDbURL(ctx, m, u)
@@ -1691,6 +1713,8 @@ func (s *Server) lookupOMDbURL(ctx context.Context, m Movie, u string) (Movie, e
 	}
 	return m, nil
 }
+
+// Wikidata and Wikipedia providers
 
 func (s *Server) lookupWikidata(ctx context.Context, m Movie) (Movie, error) {
 	searchURL := "https://www.wikidata.org/w/api.php?action=wbsearchentities&language=en&format=json&type=item&limit=5&search=" + url.QueryEscape(m.Title+" film")
@@ -1865,61 +1889,7 @@ func (s *Server) fillWikipediaSummary(ctx context.Context, m *Movie, title strin
 	}
 }
 
-func (s *Server) lookupAmazon(ctx context.Context, m Movie, rawURL string) (Movie, error) {
-	pageURL, err := normalizeAmazonURL(rawURL)
-	if err != nil {
-		return m, err
-	}
-	body, finalURL, err := s.fetchHTML(ctx, pageURL)
-	if err != nil {
-		return m, err
-	}
-	title := cleanAmazonTitle(firstMeta(body, "og:title", "twitter:title"))
-	if title == "" {
-		title = cleanAmazonTitle(firstRegexp(body, `<span[^>]+id=["']productTitle["'][^>]*>(?s:(.*?))</span>`))
-	}
-	description := firstMeta(body, "og:description", "description")
-	image := firstMeta(body, "og:image", "twitter:image")
-	if title != "" && (m.Title == "" || isAmazonURL(m.Title)) {
-		m.Title = title
-	}
-	if description != "" && m.Notes == "" {
-		m.Notes = "Amazon: " + description
-	}
-	m.AmazonURL = finalURL
-	if m.SourceURL == "" {
-		m.SourceURL = finalURL
-	}
-	if m.ExternalIDs == nil {
-		m.ExternalIDs = map[string]string{}
-	}
-	if asin := amazonASIN(finalURL); asin != "" {
-		m.ExternalIDs["amazon_asin"] = asin
-	}
-	if image != "" && m.ImagePath == "" {
-		_ = s.cacheImage(ctx, &m, image)
-	}
-	return m, nil
-}
-
-func (s *Server) searchAndScrapeAmazon(ctx context.Context, m Movie) (Movie, error) {
-	searchURL := "https://www.amazon.com/s?k=" + url.QueryEscape(m.Title+" dvd blu-ray")
-	body, _, err := s.fetchHTML(ctx, searchURL)
-	if err != nil {
-		return m, err
-	}
-	candidates := regexp.MustCompile(`href=["']([^"']*/(?:dp|gp/product)/[A-Z0-9]{10}[^"']*)["']`).FindAllStringSubmatch(body, 8)
-	for _, match := range candidates {
-		productURL := match[1]
-		if strings.HasPrefix(productURL, "/") {
-			productURL = "https://www.amazon.com" + productURL
-		}
-		if out, err := s.lookupAmazon(ctx, m, productURL); err == nil {
-			return out, nil
-		}
-	}
-	return m, errors.New("no Amazon product link found")
-}
+// Remote fetching and image storage
 
 func (s *Server) fetchHTML(ctx context.Context, rawURL string) (string, string, error) {
 	if err := validateRemoteFetchURL(rawURL); err != nil {
@@ -2073,6 +2043,8 @@ func (s *Server) deleteMovieImageFile(imagePath string) error {
 	return nil
 }
 
+// Provider data helpers
+
 type named struct {
 	Name string `json:"name"`
 }
@@ -2205,6 +2177,8 @@ func firstTimeClaim(e wikidataEntity, prop string) string {
 	return ""
 }
 
+// Shared lookup and formatting helpers
+
 func getTMDbJSON(ctx context.Context, client *http.Client, u, bearerToken string, dest any) error {
 	headers := map[string]string{}
 	if bearerToken != "" {
@@ -2279,80 +2253,18 @@ func isAmazonURL(value string) bool {
 	return host == "amazon.com" || strings.HasSuffix(host, ".amazon.com")
 }
 
-func normalizeAmazonURL(value string) (string, error) {
-	value = strings.TrimSpace(value)
-	u, err := url.Parse(value)
-	if err != nil {
-		return "", err
-	}
-	if u.Scheme == "" {
-		u.Scheme = "https"
-	}
-	if !isAmazonURL(u.String()) {
-		return "", errors.New("not an amazon.com URL")
-	}
-	asin := amazonASIN(u.String())
-	if asin != "" {
-		return "https://www.amazon.com/dp/" + asin, nil
-	}
-	u.RawQuery = ""
-	u.Fragment = ""
-	return u.String(), nil
-}
-
 func amazonASIN(value string) string {
-	re := regexp.MustCompile(`/(?:dp|gp/product)/([A-Z0-9]{10})`)
-	if match := re.FindStringSubmatch(value); len(match) == 2 {
+	if match := asinPathRE.FindStringSubmatch(value); len(match) == 2 {
 		return match[1]
 	}
 	return ""
-}
-
-func shouldSearchAmazon() bool {
-	value := strings.ToLower(strings.TrimSpace(os.Getenv("MOVIEDB_AMAZON_SEARCH")))
-	return value == "1" || value == "true" || value == "yes"
-}
-
-func firstMeta(body string, names ...string) string {
-	for _, name := range names {
-		patterns := []string{
-			`(?is)<meta[^>]+(?:property|name)=["']` + regexp.QuoteMeta(name) + `["'][^>]+content=["']([^"']+)["']`,
-			`(?is)<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']` + regexp.QuoteMeta(name) + `["']`,
-		}
-		for _, pattern := range patterns {
-			if value := firstRegexp(body, pattern); value != "" {
-				return html.UnescapeString(strings.TrimSpace(stripTags(value)))
-			}
-		}
-	}
-	return ""
-}
-
-func firstRegexp(body, pattern string) string {
-	match := regexp.MustCompile(pattern).FindStringSubmatch(body)
-	if len(match) < 2 {
-		return ""
-	}
-	return html.UnescapeString(strings.TrimSpace(stripTags(match[1])))
-}
-
-func stripTags(value string) string {
-	return regexp.MustCompile(`(?s)<[^>]*>`).ReplaceAllString(value, "")
-}
-
-func cleanAmazonTitle(value string) string {
-	value = strings.Join(strings.Fields(value), " ")
-	for _, suffix := range []string{" : Movies & TV", " - Amazon.com", " | Amazon.com"} {
-		value = strings.TrimSuffix(value, suffix)
-	}
-	return strings.TrimSpace(value)
 }
 
 func widenedTitleQueries(title string) []string {
 	seen := map[string]bool{}
 	add := func(value string, out *[]string) {
 		value = strings.TrimSpace(value)
-		value = regexp.MustCompile(`\s+`).ReplaceAllString(value, " ")
+		value = whitespaceRE.ReplaceAllString(value, " ")
 		key := strings.ToLower(value)
 		if value != "" && !seen[key] {
 			seen[key] = true
@@ -2361,9 +2273,9 @@ func widenedTitleQueries(title string) []string {
 	}
 	var out []string
 	add(title, &out)
-	add(regexp.MustCompile(`\([^)]*\)`).ReplaceAllString(title, ""), &out)
-	add(regexp.MustCompile(`\b\d{4}\b`).ReplaceAllString(title, ""), &out)
-	words := strings.Fields(regexp.MustCompile(`[^A-Za-z0-9]+`).ReplaceAllString(title, " "))
+	add(parentheticalRE.ReplaceAllString(title, ""), &out)
+	add(yearInParensOrStandaloneRE.ReplaceAllString(title, ""), &out)
+	words := strings.Fields(nonAlnumTitleRE.ReplaceAllString(title, " "))
 	for size := len(words) - 1; size >= 1; size-- {
 		add(strings.Join(words[:size], " "), &out)
 	}
@@ -2456,62 +2368,6 @@ func mergeMapPreferNew(old, new map[string]string) map[string]string {
 		return nil
 	}
 	return out
-}
-
-func randomString(a, b string) string {
-	if strings.TrimSpace(a) == "" {
-		return b
-	}
-	if strings.TrimSpace(b) == "" || a == b {
-		return a
-	}
-	if randomBool() {
-		return a
-	}
-	return b
-}
-
-func randomSlice(a, b []string) []string {
-	if len(a) == 0 {
-		return unique(b)
-	}
-	if len(b) == 0 || strings.Join(a, "\x00") == strings.Join(b, "\x00") {
-		return unique(a)
-	}
-	if randomBool() {
-		return unique(a)
-	}
-	return unique(b)
-}
-
-func mergeMapRandom(a, b map[string]string) map[string]string {
-	out := map[string]string{}
-	for key, value := range a {
-		if strings.TrimSpace(value) != "" {
-			out[key] = value
-		}
-	}
-	for key, value := range b {
-		if strings.TrimSpace(value) == "" {
-			continue
-		}
-		if existing := out[key]; existing != "" && existing != value && randomBool() {
-			continue
-		}
-		out[key] = value
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-func randomBool() bool {
-	n, err := rand.Int(rand.Reader, big.NewInt(2))
-	if err != nil {
-		return time.Now().UnixNano()%2 == 0
-	}
-	return n.Int64() == 0
 }
 
 func firstN(values []string, n int) []string {

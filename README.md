@@ -22,7 +22,8 @@ external services or the internet. Features:
 - Works on desktops, laptops, good on tablets and decent on phones
 - A single moviedb instance can be accessed from multiple machines, tablets and phones on your home network
 
-The app is about 10MB and a 500 movie database is about 1MB of JSON plus 200MB of cover art (which is optional). The repo contains a sample database in the `./data/` directory.
+The app is about 10MB and a 500 movie database is about 1MB of JSON plus 200MB of cover art (which is optional). The
+repo contains a sample database in the `./data/` directory.
 
 
 ## Build/Run
@@ -144,20 +145,6 @@ or:
 
 ```powershell
 $env:OMDB_API_KEY="your_omdb_api_key"
-./moviedb.exe
-```
-
-
-### Amazon
-
-You can paste Amazon product URLs into the add box as well, one per line, and MovieDB will make a best-effort scrape of
-the public product page for the title, cover image, description, and ASIN. Amazon scraping is intentionally best-effort
-because Amazon often blocks or changes automated page access.
-
-Plain title imports do not search Amazon by default. To opt in to Amazon search scraping for plain titles:
-
-```powershell
-$env:MOVIEDB_AMAZON_SEARCH="1"
 ./moviedb.exe
 ```
 

@@ -1,9 +1,11 @@
+// State and constants
+
 const $ = (id) => document.getElementById(id);
 
 let movies = [];
 let current = null;
 let sortAscending = true;
-let columnWidths = loadColumnWidths();
+let columnWidths = defaultColumnWidths();
 
 const maxCoverArtBytes = 20 * 1024 * 1024;
 const allowedCoverTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
@@ -80,6 +82,27 @@ const fields = {
   notes: $("notes"),
 };
 
+const formBindings = [
+  ["title", fields.title, "", textValue, writeText],
+  ["format", fields.format, "DVD", rawValue, writeText],
+  ["studio", fields.studio, "", textValue, writeText],
+  ["directors", fields.directors, [], csv, writeList],
+  ["cast", fields.cast, [], csv, writeList],
+  ["producers", fields.producers, [], csv, writeList],
+  ["genre", fields.genre, [], csv, writeList],
+  ["releaseDate", fields.releaseDate, "", textValue, writeText],
+  ["runtime", fields.runtime, "", textValue, writeText],
+  ["rating", fields.rating, "", textValue, writeText],
+  ["myRating", fields.myRating, "", rawValue, writeText],
+  ["synopsis", fields.synopsis, "", textValue, writeText],
+  ["sourceUrl", fields.sourceUrl, "", textValue, writeText],
+  ["amazonUrl", fields.amazonUrl, "", textValue, writeText],
+  ["location", fields.location, "", textValue, writeText],
+  ["notes", fields.notes, "", textValue, writeText],
+];
+
+// API
+
 async function request(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -119,6 +142,8 @@ async function loadStats() {
   const stats = await request("/api/stats");
   $("totalMovies").textContent = stats.totalMovies;
 }
+
+// Rendering
 
 function renderSortFields() {
   const sort = $("sortField");
@@ -275,23 +300,12 @@ function focusMovieResult(id) {
   button.scrollIntoView({ block: "nearest" });
 }
 
+// Form state
+
 function fillForm(movie) {
-  fields.title.value = movie.title || "";
-  fields.format.value = movie.format || "DVD";
-  fields.studio.value = movie.studio || "";
-  fields.directors.value = (movie.directors || []).join(", ");
-  fields.cast.value = (movie.cast || []).join(", ");
-  fields.producers.value = (movie.producers || []).join(", ");
-  fields.genre.value = (movie.genre || []).join(", ");
-  fields.releaseDate.value = movie.releaseDate || "";
-  fields.runtime.value = movie.runtime || "";
-  fields.rating.value = movie.rating || "";
-  fields.myRating.value = movie.myRating || "";
-  fields.synopsis.value = movie.synopsis || "";
-  fields.sourceUrl.value = movie.sourceUrl || "";
-  fields.amazonUrl.value = movie.amazonUrl || "";
-  fields.location.value = movie.location || "";
-  fields.notes.value = movie.notes || "";
+  for (const [key, field, fallback, , write] of formBindings) {
+    write(field, movie[key] ?? fallback);
+  }
   const posterPath = safeImagePath(movie.imagePath);
   $("poster").src = posterPath;
   $("poster").hidden = !posterPath;
@@ -307,7 +321,7 @@ function fillForm(movie) {
     coverUpload.classList.toggle("disabled", !isSaved);
   }
   $("coverArt").value = "";
-  $("coverStatus").textContent = "";
+  setCoverStatus("");
 }
 
 function isSavedMovie(movie) {
@@ -322,29 +336,31 @@ function canRefreshMovie(movie) {
 }
 
 function readForm() {
-  return {
-    ...current,
-    title: fields.title.value.trim(),
-    format: fields.format.value,
-    studio: fields.studio.value.trim(),
-    directors: csv(fields.directors.value),
-    cast: csv(fields.cast.value),
-    producers: csv(fields.producers.value),
-    genre: csv(fields.genre.value),
-    releaseDate: fields.releaseDate.value.trim(),
-    runtime: fields.runtime.value.trim(),
-    rating: fields.rating.value.trim(),
-    myRating: fields.myRating.value,
-    synopsis: fields.synopsis.value.trim(),
-    sourceUrl: fields.sourceUrl.value.trim(),
-    amazonUrl: fields.amazonUrl.value.trim(),
-    location: fields.location.value.trim(),
-    notes: fields.notes.value.trim(),
-  };
+  const movie = { ...current };
+  for (const [key, field, , read] of formBindings) {
+    movie[key] = read(field.value);
+  }
+  return movie;
+}
+
+function textValue(value) {
+  return value.trim();
+}
+
+function rawValue(value) {
+  return value;
 }
 
 function csv(value) {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function writeText(field, value) {
+  field.value = value || "";
+}
+
+function writeList(field, value) {
+  field.value = (value || []).join(", ");
 }
 
 function safeImagePath(path) {
@@ -356,30 +372,40 @@ function safeImagePath(path) {
     : "";
 }
 
+function setStatus(message) {
+  $("status").textContent = message;
+}
+
+function setCoverStatus(message) {
+  $("coverStatus").textContent = message;
+}
+
+// Add/import flow
+
 $("addForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const titles = $("titles").value.split(/\n|;/).map((title) => title.trim()).filter(Boolean);
   if (!titles.length) return;
   const button = event.submitter;
   button.disabled = true;
-  $("status").textContent = `Adding ${titles.length} movie${titles.length === 1 ? "" : "s"}...`;
+  setStatus(`Adding ${titles.length} movie${titles.length === 1 ? "" : "s"}...`);
   try {
     const added = [];
     for (const title of titles) {
-      $("status").textContent = `Adding ${title}...`;
+      setStatus(`Adding ${title}...`);
       const saved = await addOneMovie(title);
       if (saved) {
         added.push(saved);
       }
     }
     $("titles").value = "";
-    $("status").textContent = `Added ${added.length} movie${added.length === 1 ? "" : "s"}.`;
+    setStatus(`Added ${added.length} movie${added.length === 1 ? "" : "s"}.`);
     await loadMovies();
     if (added[0]) {
       await openMovie(added[0].id);
     }
   } catch (error) {
-    $("status").textContent = error.message;
+    setStatus(error.message);
   } finally {
     button.disabled = false;
   }
@@ -394,21 +420,23 @@ async function addOneMovie(title, duplicatePolicy = "") {
 }
 
 async function saveMovieCandidate(movie, duplicatePolicy = "") {
-  try {
-    const added = await request("/api/movies", {
-      method: "POST",
-      body: JSON.stringify({ movie, format: $("format").value, duplicatePolicy }),
-    });
-    return added[0] || null;
-  } catch (error) {
-    if (error.status !== 409 || !error.payload) {
-      throw error;
+  let policy = duplicatePolicy;
+  for (;;) {
+    try {
+      const added = await request("/api/movies", {
+        method: "POST",
+        body: JSON.stringify({ movie, format: $("format").value, duplicatePolicy: policy }),
+      });
+      return added[0] || null;
+    } catch (error) {
+      if (error.status !== 409 || !error.payload) {
+        throw error;
+      }
+      policy = chooseDuplicatePolicy(error.payload.existing, error.payload.candidate);
+      if (policy === "cancel") {
+        return null;
+      }
     }
-    const policy = chooseDuplicatePolicy(error.payload.existing, error.payload.candidate);
-    if (policy === "cancel") {
-      return null;
-    }
-    return saveMovieCandidate(movie, policy);
   }
 }
 
@@ -482,6 +510,8 @@ function chooseDuplicatePolicy(existing, candidate) {
   }
 }
 
+// Event binding
+
 $("search").addEventListener("input", () => {
   clearTimeout(window.searchTimer);
   window.searchTimer = setTimeout(loadMovies, 120);
@@ -502,7 +532,7 @@ $("movieForm").addEventListener("submit", async (event) => {
   if (!current) return;
   const movie = readForm();
   if (!movie.title) {
-    $("status").textContent = "Enter a title before saving the new movie.";
+    setStatus("Enter a title before saving the new movie.");
     fields.title.focus();
     return;
   }
@@ -523,20 +553,20 @@ $("movieForm").addEventListener("submit", async (event) => {
       fillForm(current);
     }
     await loadMovies();
-    $("status").textContent = `Saved ${current ? current.title : "movie"}.`;
+    setStatus(`Saved ${current ? current.title : "movie"}.`);
   } catch (error) {
     if (error.status === 409) {
-      $("status").textContent = "That title already exists. Enter a different title or a different release date before saving.";
+      setStatus("That title already exists. Enter a different title or a different release date before saving.");
       fields.releaseDate.focus();
       return;
     }
-    $("status").textContent = error.message;
+    setStatus(error.message);
   }
 });
 
 function startNewMovie() {
   selectMovie(blankMovie());
-  $("status").textContent = "New blank movie. Enter a unique title or title/release-date, then click Save Changes.";
+  setStatus("New blank movie. Enter a unique title or title/release-date, then click Save Changes.");
   fields.title.focus();
 }
 
@@ -547,26 +577,26 @@ $("refreshButton").addEventListener("click", async () => {
   if (!current) return;
   const draft = readForm();
   if (!draft.title) {
-    $("status").textContent = "Enter a title before updating from source.";
+    setStatus("Enter a title before updating from source.");
     fields.title.focus();
     return;
   }
-  $("status").textContent = `Loading source updates for ${draft.title}...`;
+  setStatus(`Loading source updates for ${draft.title}...`);
   try {
     if (current.id) {
       current = await request(`/api/movies/${current.id}/refresh`, { method: "POST" });
     } else {
       const candidate = await chooseMovieCandidate(draft.title, draft.format);
       if (!candidate) {
-        $("status").textContent = `No source update selected for ${draft.title}.`;
+        setStatus(`No source update selected for ${draft.title}.`);
         return;
       }
       current = mergeDraftWithSource(draft, candidate.movie);
     }
     fillForm(current);
-    $("status").textContent = `Loaded source updates for ${current.title}. Click "Save changes" to write them to the database.`;
+    setStatus(`Loaded source updates for ${current.title}. Click "Save changes" to write them to the database.`);
   } catch (error) {
-    $("status").textContent = error.message;
+    setStatus(error.message);
   }
 });
 
@@ -590,6 +620,8 @@ function mergeDraftWithSource(draft, source) {
   };
   return merged;
 }
+
+// Cover art
 
 $("coverArt").addEventListener("change", async (event) => {
   if (!current || !current.id || !event.target.files.length) {
@@ -656,12 +688,12 @@ async function uploadCoverArt(file) {
   }
   const validationError = validateCoverFile(file);
   if (validationError) {
-    $("coverStatus").textContent = validationError;
+    setCoverStatus(validationError);
     return;
   }
   const body = new FormData();
   body.append("cover", file);
-  $("coverStatus").textContent = "Uploading cover art...";
+  setCoverStatus("Uploading cover art...");
   try {
     const response = await fetch(`/api/movies/${current.id}/image`, {
       method: "POST",
@@ -673,9 +705,9 @@ async function uploadCoverArt(file) {
     current = await response.json();
     fillForm(current);
     renderResults();
-    $("coverStatus").textContent = "Cover art updated.";
+    setCoverStatus("Cover art updated.");
   } catch (error) {
-    $("coverStatus").textContent = error.message;
+    setCoverStatus(error.message);
   }
 }
 
@@ -696,7 +728,7 @@ $("deleteCoverArt").addEventListener("click", async () => {
   if (!confirm(`Delete cover art for ${current.title}?`)) {
     return;
   }
-  $("coverStatus").textContent = "Deleting cover art...";
+  setCoverStatus("Deleting cover art...");
   try {
     const response = await fetch(`/api/movies/${current.id}/image`, {
       method: "DELETE",
@@ -707,10 +739,10 @@ $("deleteCoverArt").addEventListener("click", async () => {
     current = await response.json();
     fillForm(current);
     renderResults();
-    $("coverStatus").textContent = "Cover art deleted.";
+    setCoverStatus("Cover art deleted.");
     $("posterTarget").focus();
   } catch (error) {
-    $("coverStatus").textContent = error.message;
+    setCoverStatus(error.message);
   }
 });
 
@@ -723,20 +755,10 @@ $("deleteButton").addEventListener("click", async () => {
   await loadMovies();
 });
 
-function loadColumnWidths() {
-  try {
-    const saved = JSON.parse(localStorage.getItem("moviedbColumnWidths") || "{}");
-    return {
-      left: clamp(Number(saved.left) || 320, 240, 520),
-      middle: clamp(Number(saved.middle) || 320, 220, 620),
-    };
-  } catch {
-    return { left: 320, middle: 320 };
-  }
-}
+// Layout
 
-function saveColumnWidths() {
-  localStorage.setItem("moviedbColumnWidths", JSON.stringify(columnWidths));
+function defaultColumnWidths() {
+  return { left: 320, middle: 320 };
 }
 
 function applyColumnWidths() {
@@ -778,7 +800,6 @@ function initColumnResizers() {
       const stop = () => {
         handle.classList.remove("active");
         document.body.classList.remove("resizing");
-        saveColumnWidths();
         handle.removeEventListener("pointermove", move);
         handle.removeEventListener("pointerup", stop);
         handle.removeEventListener("pointercancel", stop);
@@ -794,6 +815,8 @@ function initColumnResizers() {
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
+
+// Init
 
 renderSearchFields();
 renderSortFields();

@@ -189,6 +189,43 @@ func TestManualMovieDuplicateTitleRequiresDifferentReleaseDate(t *testing.T) {
 	}
 }
 
+func TestMergeDuplicatesPrefersNewerUpdatedAt(t *testing.T) {
+	store := &Store{path: filepath.Join(t.TempDir(), "movies.json"), movies: map[string]Movie{
+		"old": {
+			ID:          "old",
+			Title:       "Duplicate",
+			ReleaseDate: "2001",
+			Studio:      "Old Studio",
+			CreatedAt:   time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+			UpdatedAt:   time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
+		"new": {
+			ID:          "new",
+			Title:       "Duplicate",
+			ReleaseDate: "2001",
+			Studio:      "New Studio",
+			Notes:       "newer note",
+			CreatedAt:   time.Date(2020, 1, 2, 0, 0, 0, 0, time.UTC),
+			UpdatedAt:   time.Date(2020, 1, 3, 0, 0, 0, 0, time.UTC),
+		},
+	}}
+
+	merged, err := store.MergeDuplicates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged != 1 {
+		t.Fatalf("expected one duplicate merge, got %d", merged)
+	}
+	got, ok := store.Get("old")
+	if !ok {
+		t.Fatal("expected older ID to be retained")
+	}
+	if got.Studio != "New Studio" || got.Notes != "newer note" {
+		t.Fatalf("expected newer fields to win, got %+v", got)
+	}
+}
+
 func TestBlankMyRatingSearchReturnsOnlyUnratedMovies(t *testing.T) {
 	store := &Store{movies: map[string]Movie{
 		"rated":   {ID: "rated", Title: "Rated", MyRating: "8"},

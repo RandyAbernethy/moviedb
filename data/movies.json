@@ -147,14 +147,14 @@
     "sourceUrl": "https://www.themoviedb.org/movie/143",
     "amazonUrl": "",
     "imagePath": "/images/05a40252863998aecbdc1a6286b4d191.jfif",
-    "location": "",
+    "location": "Best Picture",
     "notes": "Academy Award for Best Picture",
     "externalIds": {
       "imdb": "tt0020629",
       "tmdb": "143"
     },
     "createdAt": "2026-06-19T18:06:52.3300694-04:00",
-    "updatedAt": "2026-06-20T11:53:37.8834608-04:00"
+    "updatedAt": "2026-06-21T14:00:03.8324027-04:00"
   },
   {
     "id": "6a74e7ce7f4207229ea09762b1660330",
@@ -918,14 +918,14 @@
     "sourceUrl": "https://www.themoviedb.org/movie/2769",
     "amazonUrl": "",
     "imagePath": "/images/b0a25b5b252eab2419acf36bd397a326.jfif",
-    "location": "",
+    "location": "Best Picture",
     "notes": "Academy Award for Best Picture",
     "externalIds": {
       "imdb": "tt0043278",
       "tmdb": "2769"
     },
     "createdAt": "2026-06-19T18:06:53.9782577-04:00",
-    "updatedAt": "2026-06-20T11:55:41.1230533-04:00"
+    "updatedAt": "2026-06-21T14:00:17.9943987-04:00"
   },
   {
     "id": "32045be2d352c89c455255e26e52d4d1",
@@ -1592,14 +1592,14 @@
     "sourceUrl": "https://www.themoviedb.org/movie/874",
     "amazonUrl": "",
     "imagePath": "/images/a44dada37a1bb01326b8233b646864db.jfif",
-    "location": "",
+    "location": "Best Picture",
     "notes": "Academy Award for Best Picture",
     "externalIds": {
       "imdb": "tt0060665",
       "tmdb": "874"
     },
     "createdAt": "2026-06-19T18:06:54.763055-04:00",
-    "updatedAt": "2026-06-20T11:53:59.2641703-04:00"
+    "updatedAt": "2026-06-21T13:59:57.4744617-04:00"
   },
   {
     "id": "47813d1d2c145c17c55ff177d22f477f",
@@ -2162,14 +2162,14 @@
     "sourceUrl": "https://www.themoviedb.org/movie/703",
     "amazonUrl": "",
     "imagePath": "/images/b1c8e6a0a7a246e617194df9b0c98d81.jfif",
-    "location": "",
+    "location": "Best Picture",
     "notes": "Academy Award for Best Picture",
     "externalIds": {
       "imdb": "tt0075686",
       "tmdb": "703"
     },
     "createdAt": "2026-06-19T18:06:55.3449162-04:00",
-    "updatedAt": "2026-06-20T11:55:49.0520734-04:00"
+    "updatedAt": "2026-06-21T14:00:21.890818-04:00"
   },
   {
     "id": "8adf6ea7fb1def1d531e385c45d88d7f",
@@ -2520,14 +2520,14 @@
     "sourceUrl": "https://www.themoviedb.org/movie/279",
     "amazonUrl": "",
     "imagePath": "/images/e460e46256fe7cade98adf56b77497a1.jfif",
-    "location": "",
+    "location": "Best Picture",
     "notes": "Academy Award for Best Picture",
     "externalIds": {
       "imdb": "tt0086879",
       "tmdb": "279"
     },
     "createdAt": "2026-06-19T18:06:55.7179121-04:00",
-    "updatedAt": "2026-06-20T11:55:23.9031221-04:00"
+    "updatedAt": "2026-06-21T14:00:10.9353566-04:00"
   },
   {
     "id": "06434fb61d9213001d3c889d491ab942",
@@ -3259,14 +3259,14 @@
     "sourceUrl": "https://www.themoviedb.org/movie/14",
     "amazonUrl": "",
     "imagePath": "/images/31b5d59070cef4139962f54220e5f5ac.jfif",
-    "location": "",
+    "location": "Best Picture",
     "notes": "Academy Award for Best Picture",
     "externalIds": {
       "imdb": "tt0169547",
       "tmdb": "14"
     },
     "createdAt": "2026-06-19T18:06:56.5273386-04:00",
-    "updatedAt": "2026-06-20T11:55:30.7957877-04:00"
+    "updatedAt": "2026-06-21T14:00:14.3058792-04:00"
   },
   {
     "id": "282c201aac1a0b260be140579eb99414",
@@ -3365,14 +3365,14 @@
     "sourceUrl": "https://www.themoviedb.org/movie/453",
     "amazonUrl": "",
     "imagePath": "/images/b7dcc809f6fd71c77f83c86b9e1660d4.jfif",
-    "location": "",
+    "location": "Best Picture",
     "notes": "Academy Award for Best Picture",
     "externalIds": {
       "imdb": "tt0268978",
       "tmdb": "453"
     },
     "createdAt": "2026-06-19T18:06:56.6379911-04:00",
-    "updatedAt": "2026-06-20T11:54:05.4448372-04:00"
+    "updatedAt": "2026-06-21T13:59:53.3566716-04:00"
   },
   {
     "id": "560c36907d2390c0360449ee15db8f2c",
@@ -3898,14 +3898,14 @@
     "sourceUrl": "https://www.themoviedb.org/movie/68734",
     "amazonUrl": "",
     "imagePath": "/images/a7a08006219b55c5e5193671151c0580.jfif",
-    "location": "",
+    "location": "Best Picture",
     "notes": "Academy Award for Best Picture",
     "externalIds": {
       "imdb": "tt1024648",
       "tmdb": "68734"
     },
     "createdAt": "2026-06-19T18:06:57.2389555-04:00",
-    "updatedAt": "2026-06-20T12:12:49.1756294-04:00"
+    "updatedAt": "2026-06-21T14:00:28.8865821-04:00"
   },
   {
     "id": "6ae784a870c5d2e9055353c9455e1b56",
@@ -4497,14 +4497,14 @@
     "sourceUrl": "https://www.themoviedb.org/movie/1064213",
     "amazonUrl": "",
     "imagePath": "/images/694d689076f86beeba9b58b88c916df7.jfif",
-    "location": "",
+    "location": "Best Picture",
     "notes": "Academy Award for Best Picture",
     "externalIds": {
       "imdb": "tt28607951",
       "tmdb": "1064213"
     },
     "createdAt": "2026-06-19T18:06:57.8957696-04:00",
-    "updatedAt": "2026-06-20T09:23:36.8239661-04:00"
+    "updatedAt": "2026-06-21T14:00:25.5487247-04:00"
   },
   {
     "id": "2a8f3aab86c240a3dec8e20c260ef9b4",
@@ -4721,14 +4721,14 @@
     "sourceUrl": "https://www.themoviedb.org/movie/76203",
     "amazonUrl": "",
     "imagePath": "/images/5e0b571de0785b5320e44a3762f12592.jfif",
-    "location": "",
+    "location": "Best Picture",
     "notes": "Academy Award for Best Picture",
     "externalIds": {
       "imdb": "tt2024544",
       "tmdb": "76203"
     },
     "createdAt": "2026-06-19T18:21:29.847972-04:00",
-    "updatedAt": "2026-06-20T09:22:43.649791-04:00"
+    "updatedAt": "2026-06-21T13:59:48.7665341-04:00"
   },
   {
     "id": "dbbb85112532e4ef4bdaf6c96d9005a9",
@@ -7003,14 +7003,14 @@
     "sourceUrl": "https://www.themoviedb.org/movie/25430",
     "amazonUrl": "",
     "imagePath": "/images/3bdebdf753a655198908adef7f244e02.jfif",
-    "location": "",
+    "location": "Best Picture",
     "notes": "Academy Award for Best Picture",
     "externalIds": {
       "imdb": "tt0041113",
       "tmdb": "25430"
     },
     "createdAt": "2026-06-20T09:38:33.6780606-04:00",
-    "updatedAt": "2026-06-20T11:53:30.7410339-04:00"
+    "updatedAt": "2026-06-21T14:00:07.4656994-04:00"
   },
   {
     "id": "cf059ec2fb5ac9d363f21d8537cfe8c4",
@@ -7057,14 +7057,14 @@
     "sourceUrl": "https://www.themoviedb.org/movie/2897",
     "amazonUrl": "",
     "imagePath": "/images/cf059ec2fb5ac9d363f21d8537cfe8c4.jfif",
-    "location": "",
+    "location": "Best Picture",
     "notes": "Academy Award for Best Picture",
     "externalIds": {
       "imdb": "tt0048960",
       "tmdb": "2897"
     },
     "createdAt": "2026-06-20T09:40:59.3505987-04:00",
-    "updatedAt": "2026-06-20T11:56:12.5937865-04:00"
+    "updatedAt": "2026-06-21T14:00:36.5135691-04:00"
   },
   {
     "id": "6bd81e810e365fe86464d1a30a3b9403",

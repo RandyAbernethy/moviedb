@@ -38,6 +38,61 @@ func TestDeleteMovieImageFileRejectsUnsafePath(t *testing.T) {
 	}
 }
 
+func TestNewStoreCreatesEmptyDatabaseFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "movies.json")
+
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if store.Count() != 0 {
+		t.Fatalf("expected new store to be empty, got %d movies", store.Count())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) != "[]" {
+		t.Fatalf("expected empty movies.json to be created, got %q", data)
+	}
+}
+
+func TestImageHandlerRejectsDirectoryListing(t *testing.T) {
+	server := &Server{imageDir: t.TempDir(), imageBase: "/images/"}
+	req := httptest.NewRequest(http.MethodGet, "/images/", nil)
+	rec := httptest.NewRecorder()
+
+	server.handleImageFile(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected image directory listing to be hidden, got %d", rec.Code)
+	}
+}
+
+func TestSaveUploadedImageRejectsSVG(t *testing.T) {
+	server := &Server{imageDir: t.TempDir(), imageBase: "/images/"}
+	movie := Movie{ID: "movie-id"}
+
+	if _, err := server.saveUploadedImage(&movie, strings.NewReader(`<svg xmlns="http://www.w3.org/2000/svg"></svg>`), "cover.svg"); err == nil {
+		t.Fatal("expected SVG upload to be rejected")
+	}
+}
+
+func TestSaveUploadedImageAcceptsJPEG(t *testing.T) {
+	server := &Server{imageDir: t.TempDir(), imageBase: "/images/"}
+	movie := Movie{ID: "movie-id"}
+	jpeg := []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00}
+
+	path, err := server.saveUploadedImage(&movie, bytes.NewReader(jpeg), "cover.jfif")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(path, "/images/movie-id-cover-") || !strings.HasSuffix(path, ".jpg") {
+		t.Fatalf("expected normalized local JPEG path, got %q", path)
+	}
+}
+
 func TestSaveMovieWithNewImageDeletesOldImage(t *testing.T) {
 	dir := t.TempDir()
 	store, err := NewStore(filepath.Join(dir, "movies.json"))
@@ -90,6 +145,29 @@ func TestManualMovieRequiresTitle(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected blank title to be rejected, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestManualMovieRejectsUnsafeImagePath(t *testing.T) {
+	server := newTestServer(t)
+	rec := postManualMovie(t, server, Movie{Title: "Unsafe Poster", ImagePath: "https://example.com/poster.jpg"})
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected unsafe image path to be rejected, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMoviesPostRejectsOversizedJSON(t *testing.T) {
+	server := newTestServer(t)
+	hugeTitle := strings.Repeat("a", maxJSONBodyBytes)
+	body := []byte(`{"titles":["` + hugeTitle + `"]}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/movies", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	server.handleMovies(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected oversized JSON to be rejected, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -172,6 +250,60 @@ func TestHostListRejectsEmptyHost(t *testing.T) {
 	}
 }
 
+func TestHostPolicyAllowsWildcardLANIPsOnly(t *testing.T) {
+	policy := newHostPolicy([]string{"0.0.0.0"}, appPort)
+	if !policy.allows("192.168.1.25:8765") {
+		t.Fatal("expected private LAN IP to be allowed for wildcard bind")
+	}
+	if policy.allows("evil.example:8765") {
+		t.Fatal("expected arbitrary hostname to be rejected")
+	}
+}
+
+func TestSecurityMiddlewareRejectsUnexpectedHost(t *testing.T) {
+	handler := securityMiddleware(newHostPolicy([]string{"127.0.0.1"}, appPort), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "http://evil.example/moviedb/", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected unexpected host to be rejected, got %d", rec.Code)
+	}
+}
+
+func TestSecurityMiddlewareRejectsCrossOriginMutation(t *testing.T) {
+	handler := securityMiddleware(newHostPolicy([]string{"127.0.0.1"}, appPort), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8765/api/movies", nil)
+	req.Header.Set("Origin", "http://evil.example")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected cross-origin mutation to be rejected, got %d", rec.Code)
+	}
+}
+
+func TestSecurityMiddlewareAllowsSameOriginMutation(t *testing.T) {
+	handler := securityMiddleware(newHostPolicy([]string{"127.0.0.1"}, appPort), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8765/api/movies", nil)
+	req.Header.Set("Origin", "http://127.0.0.1:8765")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected same-origin mutation to pass, got %d", rec.Code)
+	}
+}
+
 func TestValidPort(t *testing.T) {
 	valid := []int{1, appPort, 65535}
 	for _, port := range valid {
@@ -195,6 +327,41 @@ func TestBrowserURLUsesMovieDBRoute(t *testing.T) {
 	defer ln.Close()
 	if got := browserURLForListener(ln); !strings.HasSuffix(got, "/moviedb/") {
 		t.Fatalf("expected /moviedb/ route, got %q", got)
+	}
+}
+
+func TestDatabaseDirDefaultsToAppRootData(t *testing.T) {
+	root := t.TempDir()
+
+	got := databaseDir(root, "")
+
+	if got != filepath.Join(root, "data") {
+		t.Fatalf("expected default database directory under app root, got %q", got)
+	}
+}
+
+func TestDatabaseDirUsesDBPathOverride(t *testing.T) {
+	root := t.TempDir()
+	override := filepath.Join(t.TempDir(), "custom-db")
+
+	got := databaseDir(root, "  "+override+"  ")
+
+	if got != cleanAbsPath(override) {
+		t.Fatalf("expected db-path override to win, got %q", got)
+	}
+}
+
+func TestValidateRemoteFetchURLRejectsUnsafeTargets(t *testing.T) {
+	values := []string{
+		"file:///etc/passwd",
+		"http://127.0.0.1:8765/",
+		"http://10.0.0.1/poster.jpg",
+		"https://user:pass@example.com/poster.jpg",
+	}
+	for _, value := range values {
+		if err := validateRemoteFetchURL(value); err == nil {
+			t.Fatalf("expected %q to be rejected", value)
+		}
 	}
 }
 

@@ -39,6 +39,18 @@ class FakeElement {
     return child;
   }
 
+  append(...children) {
+    for (const child of children) {
+      if (typeof child === "string") continue;
+      this.appendChild(child);
+    }
+  }
+
+  replaceChildren(...children) {
+    this.children = [];
+    this.append(...children);
+  }
+
   addEventListener(type, callback) {
     this.eventListeners[type] ||= [];
     this.eventListeners[type].push(callback);
@@ -82,23 +94,6 @@ class FakeElement {
       return shouldAdd;
     },
   };
-
-  set innerHTML(value) {
-    this._innerHTML = value;
-    this.children = [];
-    if (this.className === "field-option" && value.includes("checkbox")) {
-      const input = this.ownerDocument.createElement("input");
-      input.type = "checkbox";
-      const match = value.match(/value="([^"]+)"/);
-      input.value = match ? match[1] : "";
-      input.checked = value.includes("checked");
-      this.appendChild(input);
-    }
-  }
-
-  get innerHTML() {
-    return this._innerHTML || "";
-  }
 
   querySelector(selector) {
     return findFirst(this, selector);

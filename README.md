@@ -6,36 +6,36 @@ The executable runs a local web server (e.g. http://127.0.0.1:8765/moviedb/) and
 embedded html/css/js. Movie data is stored locally in a movies.json file under `./data/` with cover art saved in
 discrete files under `./data/images/`.
 
-I created this application because I wanted a simple, local solution to manage my movie collection without relying on
-external services. I find that once you exceed a few hundred DVD/Blu-ray titles, remembering which movies you have and
-where they are becomes challenging. I spend weeks at a time on my sailboat with limited internet access, so online
-solutions don't work. Furthermore, once I take the time to enter, and personally rate and record the location of my
-movies, I definitely do not want to ever have to do it again! I have tried proprietary, closed source solutions and have
-been repeatedly disappointed.
+I created MovieDB because I wanted a simple, local solution to manage a DVD/Blu-ray movie collection without relying on
+external services or the internet. Features:
 
-This is why the MovieDB database is simply a JSON file. You can save the movie executable and your data directory in the
-cloud and pull it down to any computer you use. If you make changes, you just push the data directory back to the cloud
-and then pull it down to any other machines you use the application from. Plain vanilla editors and JSON tools can be
-used to manipulate the data directly. While crude, this approach is super simple, supports disconnected operation and is
-easy to manage. The JSON file structure also allows the application to evolve over time, adding new fields without
-breaking the old DB records. Because the app is just a web server, you can also access it from multiple machines and
-tablets on your home network if you like.
+- Makes it easy to add movies manually or automatically in large batches using online databases (the one connected feature)
+- Stores all of the information about your movies locally with no need for internet access
+- Free and open source (depends on no 3rd party tools, requires no subscriptions)
+- Single, small, fast binary: download it, run it
+- Uses a single simple json file for all movie data (except cover art images), copy and edit as you like
+- Uses an `images/` directory to house all cover art files in standard viewable graphics formats (png, jpeg, etc.)
+- Allows you to store location information (which binder, shelf or cabinet the movie is in)
+- Allows you to rate your movies
+- Allows you to add notes to movies
+- Everything is searchable, making it easy to find movies with a given actor or from a specific genre or with a "watch next" note or ...
+- Works on desktops, laptops, good on tablets and decent on phones
+- A single moviedb instance can be accessed from multiple machines, tablets and phones on your home network
 
-The app is compact, about 10MB and a 500 movie database is about 1MB of JSON plus 200MB of cover art (which is
-optional) and works great on desk/laptops, good on tablets and decent on phones.
+The app is about 10MB and a 500 movie database is about 1MB of JSON plus 200MB of cover art (which is optional). The repo contains a sample database in the `./data/` directory.
 
 
 ## Build/Run
 
-You can build and run the application on Windows in PowerShell with:
+To build and run the application on Windows (golang must be installed and on the path):
 
 ```powershell
 go run .
 ```
 
-The app opens automatically in your default browser.
+The app should open automatically in the default browser.
 
-To build a Windows executable use:
+To build a Windows executable:
 
 ```powershell
 go build -o moviedb.exe .
@@ -45,6 +45,22 @@ To run the executable, just run it!
 
 ```powershell
 ./moviedb.exe
+```
+
+The app supports a few command line switches:
+
+```powershell
+PS C:\moviedb> .\moviedb.exe -h
+
+Usage of C:\moviedb\moviedb.exe:
+  -db-path string
+        database directory containing movies.json and images/
+  -host value
+        host interface to listen on; may be repeated
+  -port int
+        TCP port to listen on (default 8765)
+
+PS C:\moviedb> 
 ```
 
 By default, MovieDB listens on localhost port `8765`. You can ask the app to listen on all IPv4 interfaces and/or a different port:
@@ -59,8 +75,17 @@ To listen on specific interfaces, use as many host switches as you require `--ho
 ./moviedb.exe --host 127.0.0.1 --host 192.168.1.25
 ```
 
+By default, MovieDB looks for the database under `./data/` relative to the run directory. To
+choose an alternate database directory, use `--db-path`. The directory should contain `movies.json`; cover art is read
+from and written to an `images/` subdirectory inside that same directory. If `movies.json` does not exist in the
+selected directory, MovieDB creates an empty database there:
+
+```powershell
+./moviedb.exe --db-path "D:\MovieDB\data"
+```
+
 This is a Go program with a browser based UI so it will need very few (if any) tweaks to run on Linux or Mac, I just
-haven't gotten around to it. Most testing is done with Chrome.
+haven't gotten around to testing it. The app has been tested with Chrome.
 
 
 ## Use
@@ -139,11 +164,16 @@ $env:MOVIEDB_AMAZON_SEARCH="1"
 
 ## Duplicates
 
-MovieDB does not allow duplicate movies, but it does allow movies with the same title if their release dates differ. On
-startup it scans the local database and merges duplicates title/date movies automatically, randomly choosing between
-conflicting populated fields (duplicates should not happen but if they do this startup check will repair your DB so that
-you can continue to use the app). During import, duplicate matches produce a dialog that lets you cancel, merge new data
-into the existing record, merge old data into the new record, or overwrite the old record. If you have concerns about
-your database, make a backup of the ./data/movies.json file. You can always restore a backup by shutting down the
-application and then just copying over the old movies.json file with your backup. Also, because movies.json is just a
-json file, you can edit it manually if needed with any decent editor (e.g. notepad++, vscode, vim, etc.).
+MovieDB does not allow duplicate movies, a movie is unique if the combination of its title and release date are unique.
+On startup the app scans the local database and merges duplicates title/date movies automatically (duplicates should not
+occur during normal operations but if they do this startup check will repair your DB so that you can continue to use the
+app). During add operations, duplicate movies produce a dialog that lets you:
+
+- Cancel - aborts the add with no data changed
+- Merge new data - Copies new data into the existing record leaving old data intact when new fields are blank
+- Merge old data - Copies old data into the new record leaving new data intact when old fields are blank
+- Overwrite - Deletes the old record and adds the new record in its place
+
+If you have concerns about your database, make a backup of the ./data/movies.json file. You can always restore a backup
+by shutting down the application and then just copying over the old movies.json file with your backup. Also, because
+movies.json is just a json file, you can edit it manually with any decent editor (e.g. notepad++, vscode, vim, etc.).

@@ -5,6 +5,9 @@ let current = null;
 let sortAscending = true;
 let columnWidths = loadColumnWidths();
 
+const maxCoverArtBytes = 20 * 1024 * 1024;
+const allowedCoverTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+
 function blankMovie() {
   return {
     title: "",
@@ -119,7 +122,7 @@ async function loadStats() {
 
 function renderSortFields() {
   const sort = $("sortField");
-  sort.innerHTML = "";
+  sort.replaceChildren();
   for (const [value, label] of sortFields) {
     const option = document.createElement("option");
     option.value = value;
@@ -131,12 +134,18 @@ function renderSortFields() {
 
 function renderSearchFields() {
   const box = $("fieldList");
-  box.innerHTML = "";
+  box.replaceChildren();
   for (const [value, label] of searchFields) {
     const item = document.createElement("label");
     item.className = "field-option";
-    item.innerHTML = `<input type="checkbox" value="${value}" checked> <span>${label}</span>`;
-    item.querySelector("input").addEventListener("change", loadMovies);
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = value;
+    input.checked = true;
+    const span = document.createElement("span");
+    span.textContent = label;
+    item.append(input, " ", span);
+    input.addEventListener("change", loadMovies);
     box.appendChild(item);
   }
 }
@@ -154,10 +163,13 @@ function setAllSearchFields(checked) {
 
 function renderResults() {
   const box = $("results");
-  box.innerHTML = "";
+  box.replaceChildren();
   $("resultCount").textContent = `${movies.length} match${movies.length === 1 ? "" : "es"}`;
   if (!movies.length) {
-    box.innerHTML = `<p class="status">No matching movies.</p>`;
+    const empty = document.createElement("p");
+    empty.className = "status";
+    empty.textContent = "No matching movies.";
+    box.appendChild(empty);
     return;
   }
   for (const movie of sortedMovies()) {
@@ -165,10 +177,11 @@ function renderResults() {
     button.className = `result${current && current.id === movie.id ? " active" : ""}`;
     button.type = "button";
     button.dataset.movieId = movie.id;
-    button.innerHTML = `
-      <strong>${escapeHTML(movie.title || "Untitled")}</strong>
-      <span>${escapeHTML([movie.format, movie.releaseDate, (movie.genre || []).join(", ")].filter(Boolean).join(" - "))}</span>
-    `;
+    const title = document.createElement("strong");
+    title.textContent = movie.title || "Untitled";
+    const meta = document.createElement("span");
+    meta.textContent = [movie.format, movie.releaseDate, (movie.genre || []).join(", ")].filter(Boolean).join(" - ");
+    button.append(title, meta);
     button.addEventListener("click", () => selectMovie(movie, { focusResult: true }));
     button.addEventListener("keydown", handleResultKeydown);
     box.appendChild(button);
@@ -279,14 +292,15 @@ function fillForm(movie) {
   fields.amazonUrl.value = movie.amazonUrl || "";
   fields.location.value = movie.location || "";
   fields.notes.value = movie.notes || "";
-  $("poster").src = movie.imagePath || "";
-  $("poster").hidden = !movie.imagePath;
-  $("posterTarget").classList.toggle("empty", !movie.imagePath);
+  const posterPath = safeImagePath(movie.imagePath);
+  $("poster").src = posterPath;
+  $("poster").hidden = !posterPath;
+  $("posterTarget").classList.toggle("empty", !posterPath);
   const isSaved = isSavedMovie(movie);
   $("refreshButton").disabled = !canRefreshMovie(movie);
   $("deleteButton").disabled = !isSaved;
   $("coverArt").disabled = !isSaved;
-  $("deleteCoverArt").disabled = !isSaved || !movie.imagePath;
+  $("deleteCoverArt").disabled = !isSaved || !posterPath;
   $("posterTarget").classList.toggle("disabled", !isSaved);
   const coverUpload = $("coverArt").closest ? $("coverArt").closest(".cover-upload") : null;
   if (coverUpload) {
@@ -333,14 +347,13 @@ function csv(value) {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
-function escapeHTML(value) {
-  return value.replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;",
-  }[char]));
+function safeImagePath(path) {
+  if (typeof path !== "string") {
+    return "";
+  }
+  return /^\/images\/[A-Za-z0-9][A-Za-z0-9._-]*\.(?:gif|jfif|jpe?g|png|webp)$/i.test(path) && !path.includes("..")
+    ? path
+    : "";
 }
 
 $("addForm").addEventListener("submit", async (event) => {
@@ -641,6 +654,11 @@ async function uploadCoverArt(file) {
   if (!current || !current.id || !file) {
     return;
   }
+  const validationError = validateCoverFile(file);
+  if (validationError) {
+    $("coverStatus").textContent = validationError;
+    return;
+  }
   const body = new FormData();
   body.append("cover", file);
   $("coverStatus").textContent = "Uploading cover art...";
@@ -659,6 +677,16 @@ async function uploadCoverArt(file) {
   } catch (error) {
     $("coverStatus").textContent = error.message;
   }
+}
+
+function validateCoverFile(file) {
+  if (file.size > maxCoverArtBytes) {
+    return "Cover art must be 20 MB or smaller.";
+  }
+  if (file.type && !allowedCoverTypes.has(file.type)) {
+    return "Cover art must be JPEG, PNG, GIF, or WebP.";
+  }
+  return "";
 }
 
 $("deleteCoverArt").addEventListener("click", async () => {

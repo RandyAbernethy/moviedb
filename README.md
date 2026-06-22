@@ -11,8 +11,9 @@ external services or the internet. Features:
 
 - Makes it easy to add movies manually or automatically in large batches using online databases (the one connected feature)
 - Stores all of the information about your movies locally with no need for internet access
-- Free and open source (depends on no 3rd party tools, requires no subscriptions)
+- Free and open source (requires no subscriptions)
 - Single, small, fast binary: download it, run it
+- Minimal dependencies, the Go standard library in the backend and plain vanilla JavaScript in the browser (imports/requires)
 - Uses a single simple json file for all movie data (except cover art images), copy and edit as you like
 - Uses an `images/` directory to house all cover art files in standard viewable graphics formats (png, jpeg, etc.)
 - Allows you to store location information (which binder, shelf or cabinet the movie is in)

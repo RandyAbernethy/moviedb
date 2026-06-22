@@ -165,3 +165,4 @@ app). During add operations, duplicate movies produce a dialog that lets you:
 If you have concerns about your database, make a backup of the ./data/movies.json file. You can always restore a backup
 by shutting down the application and then just copying over the old movies.json file with your backup. Also, because
 movies.json is just a json file, you can edit it manually with any decent editor (e.g. notepad++, vscode, vim, etc.).
+If you want to preserve your cover art, you should make a copy of the images directory too.

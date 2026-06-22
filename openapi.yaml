@@ -1,5 +1,7 @@
 # Tested with redocly:
 # npx @redocly/cli@latest lint openapi.yaml --extends=recommended --skip-rule "no-server-example.com" --skip-rule "operation-4xx-response"
+# --skip-rule "no-server-example.com"  - This app is meant to run locally (!) so localhost is our expected end point.
+# --skip-rule "operation-4xx-response" - This applies to DELETE on a /api/movies/{id}, DELETE should be idempotent so 204 if there or not, if something broke it is a 500!
 openapi: 3.0.3
 info:
   title: MovieDB API

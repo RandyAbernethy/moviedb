@@ -5,6 +5,9 @@ const $ = (id) => document.getElementById(id);
 let movies = [];
 let current = null;
 let sortAscending = true;
+let ignoreLeadingThe = false;
+let pendingCoverArtFile = null;
+let pendingCoverArtURL = "";
 let columnWidths = defaultColumnWidths();
 
 const maxCoverArtBytes = 20 * 1024 * 1024;
@@ -155,6 +158,7 @@ function renderSortFields() {
     sort.appendChild(option);
   }
   sort.value = "title";
+  updateIgnoreLeadingTheAvailability();
 }
 
 function renderSearchFields() {
@@ -223,6 +227,9 @@ function sortedMovies() {
 
 function sortValue(movie, field) {
   const value = movie[field];
+  if (field === "title" && isIgnoreLeadingTheActive()) {
+    return titleWithoutLeadingThe(value);
+  }
   if (Array.isArray(value)) {
     return value.join(", ");
   }
@@ -230,6 +237,14 @@ function sortValue(movie, field) {
     return objectText(value);
   }
   return value || "";
+}
+
+function titleWithoutLeadingThe(value) {
+  return String(value || "").trim().replace(/^the\s+/i, "");
+}
+
+function isIgnoreLeadingTheActive() {
+  return ($("sortField").value || "title") === "title" && ignoreLeadingThe;
 }
 
 function objectText(value) {
@@ -262,6 +277,9 @@ async function openMovie(id, options = {}) {
 }
 
 function selectMovie(movie, options = {}) {
+  if (!options.keepPendingCoverArt) {
+    clearPendingCoverArt();
+  }
   current = movie;
   $("empty").classList.add("hidden");
   $("movieForm").classList.remove("hidden");
@@ -273,6 +291,12 @@ function selectMovie(movie, options = {}) {
 }
 
 function handleResultKeydown(event) {
+  if (isTitleJumpKey(event)) {
+    jumpToMovieByTitlePrefix(event.key);
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
   if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
     return;
   }
@@ -291,6 +315,23 @@ function handleResultKeydown(event) {
   }
 }
 
+function isTitleJumpKey(event) {
+  return !event.altKey && !event.ctrlKey && !event.metaKey && event.key.length === 1 && /^[a-z0-9]$/i.test(event.key);
+}
+
+function jumpToMovieByTitlePrefix(prefix) {
+  const normalizedPrefix = prefix.toLowerCase();
+  const match = sortedMovies().find((movie) => titleJumpText(movie).startsWith(normalizedPrefix));
+  if (match) {
+    selectMovie(match, { focusResult: true });
+  }
+}
+
+function titleJumpText(movie) {
+  const title = isIgnoreLeadingTheActive() ? titleWithoutLeadingThe(movie.title) : movie.title;
+  return String(title || "").trim().toLowerCase();
+}
+
 function focusMovieResult(id) {
   const button = document.querySelector(`.result[data-movie-id="${CSS.escape(id)}"]`);
   if (!button) {
@@ -306,22 +347,27 @@ function fillForm(movie) {
   for (const [key, field, fallback, , write] of formBindings) {
     write(field, movie[key] ?? fallback);
   }
-  const posterPath = safeImagePath(movie.imagePath);
-  $("poster").src = posterPath;
-  $("poster").hidden = !posterPath;
-  $("posterTarget").classList.toggle("empty", !posterPath);
+  const posterPath = pendingCoverArtFile ? pendingCoverArtURL : safeImagePath(movie.imagePath);
+  showPoster(posterPath);
   const isSaved = isSavedMovie(movie);
+  const canEditCover = Boolean(movie);
   $("refreshButton").disabled = !canRefreshMovie(movie);
   $("deleteButton").disabled = !isSaved;
-  $("coverArt").disabled = !isSaved;
-  $("deleteCoverArt").disabled = !isSaved || !posterPath;
-  $("posterTarget").classList.toggle("disabled", !isSaved);
+  $("coverArt").disabled = !canEditCover;
+  $("deleteCoverArt").disabled = !canEditCover || !posterPath;
+  $("posterTarget").classList.toggle("disabled", !canEditCover);
   const coverUpload = $("coverArt").closest ? $("coverArt").closest(".cover-upload") : null;
   if (coverUpload) {
-    coverUpload.classList.toggle("disabled", !isSaved);
+    coverUpload.classList.toggle("disabled", !canEditCover);
   }
   $("coverArt").value = "";
   setCoverStatus("");
+}
+
+function showPoster(path) {
+  $("poster").src = path;
+  $("poster").hidden = !path;
+  $("posterTarget").classList.toggle("empty", !path);
 }
 
 function isSavedMovie(movie) {
@@ -520,12 +566,25 @@ $("search").addEventListener("input", () => {
 $("selectAllFields").addEventListener("click", () => setAllSearchFields(true));
 $("clearFields").addEventListener("click", () => setAllSearchFields(false));
 $("results").addEventListener("keydown", handleResultKeydown);
-$("sortField").addEventListener("change", renderResults);
+$("sortField").addEventListener("change", () => {
+  updateIgnoreLeadingTheAvailability();
+  renderResults();
+});
 $("sortDirection").addEventListener("click", () => {
   sortAscending = !sortAscending;
   $("sortDirection").textContent = sortAscending ? "A-Z" : "Z-A";
   renderResults();
 });
+$("ignoreLeadingThe").addEventListener("change", () => {
+  ignoreLeadingThe = $("ignoreLeadingThe").checked;
+  renderResults();
+});
+
+function updateIgnoreLeadingTheAvailability() {
+  const enabled = ($("sortField").value || "title") === "title";
+  $("ignoreLeadingThe").disabled = !enabled;
+  $("ignoreLeadingTheLabel").classList.toggle("disabled", !enabled);
+}
 
 $("movieForm").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -551,6 +610,9 @@ $("movieForm").addEventListener("submit", async (event) => {
     }
     if (current) {
       fillForm(current);
+      if (pendingCoverArtFile && current.id) {
+        await uploadPendingCoverArt();
+      }
     }
     await loadMovies();
     setStatus(`Saved ${current ? current.title : "movie"}.`);
@@ -624,10 +686,11 @@ function mergeDraftWithSource(draft, source) {
 // Cover art
 
 $("coverArt").addEventListener("change", async (event) => {
-  if (!current || !current.id || !event.target.files.length) {
+  if (!current || !event.target.files.length) {
     return;
   }
-  await uploadCoverArt(event.target.files[0]);
+  await handleCoverArtFile(event.target.files[0]);
+  event.target.value = "";
 });
 
 for (const target of [$("posterTarget"), $("poster")]) {
@@ -658,7 +721,7 @@ $("posterTarget").addEventListener("drop", async (event) => {
   $("posterTarget").classList.remove("drop-ready");
   const file = [...event.dataTransfer.files].find((item) => item.type.startsWith("image/"));
   if (file) {
-    await uploadCoverArt(file);
+    await handleCoverArtFile(file);
   }
 });
 
@@ -672,24 +735,68 @@ function coverFileFromClipboard(event) {
 }
 
 async function handleCoverPaste(event) {
-  if (!current || !current.id) {
+  if (!current) {
     return;
   }
   const file = coverFileFromClipboard(event);
   if (file) {
     event.preventDefault();
-    await uploadCoverArt(file);
+    await handleCoverArtFile(file);
   }
 }
 
-async function uploadCoverArt(file) {
-  if (!current || !current.id || !file) {
-    return;
+async function handleCoverArtFile(file) {
+  if (!current || !file) {
+    return false;
   }
   const validationError = validateCoverFile(file);
   if (validationError) {
     setCoverStatus(validationError);
-    return;
+    return false;
+  }
+  if (!current.id) {
+    stagePendingCoverArt(file);
+    return true;
+  }
+  return uploadCoverArt(file);
+}
+
+function stagePendingCoverArt(file) {
+  clearPendingCoverArt();
+  pendingCoverArtFile = file;
+  pendingCoverArtURL = temporaryCoverArtURL(file);
+  current.imagePath = "";
+  showPoster(pendingCoverArtURL);
+  $("deleteCoverArt").disabled = false;
+  setCoverStatus("Cover art ready. Save changes to upload.");
+}
+
+function temporaryCoverArtURL(file) {
+  const urlAPI = window.URL || (typeof URL !== "undefined" ? URL : null);
+  return urlAPI && typeof urlAPI.createObjectURL === "function" ? urlAPI.createObjectURL(file) : "";
+}
+
+function clearPendingCoverArt() {
+  if (pendingCoverArtURL) {
+    const urlAPI = window.URL || (typeof URL !== "undefined" ? URL : null);
+    if (urlAPI && typeof urlAPI.revokeObjectURL === "function") {
+      urlAPI.revokeObjectURL(pendingCoverArtURL);
+    }
+  }
+  pendingCoverArtFile = null;
+  pendingCoverArtURL = "";
+}
+
+async function uploadPendingCoverArt() {
+  if (!pendingCoverArtFile || !current || !current.id) {
+    return true;
+  }
+  return uploadCoverArt(pendingCoverArtFile);
+}
+
+async function uploadCoverArt(file) {
+  if (!current || !current.id || !file) {
+    return false;
   }
   const body = new FormData();
   body.append("cover", file);
@@ -703,11 +810,14 @@ async function uploadCoverArt(file) {
       throw new Error(await response.text());
     }
     current = await response.json();
+    clearPendingCoverArt();
     fillForm(current);
     renderResults();
     setCoverStatus("Cover art updated.");
+    return true;
   } catch (error) {
     setCoverStatus(error.message);
+    return false;
   }
 }
 
@@ -722,7 +832,29 @@ function validateCoverFile(file) {
 }
 
 $("deleteCoverArt").addEventListener("click", async () => {
-  if (!current || !current.id || !current.imagePath) {
+  if (!current) {
+    return;
+  }
+  if (pendingCoverArtFile) {
+    clearPendingCoverArt();
+    const posterPath = safeImagePath(current.imagePath);
+    showPoster(posterPath);
+    $("deleteCoverArt").disabled = !posterPath;
+    $("coverArt").value = "";
+    setCoverStatus("Cover art removed.");
+    $("posterTarget").focus();
+    return;
+  }
+  if (!current.id) {
+    current.imagePath = "";
+    showPoster("");
+    $("deleteCoverArt").disabled = true;
+    $("coverArt").value = "";
+    setCoverStatus("Cover art removed.");
+    $("posterTarget").focus();
+    return;
+  }
+  if (!current.imagePath) {
     return;
   }
   if (!confirm(`Delete cover art for ${current.title}?`)) {

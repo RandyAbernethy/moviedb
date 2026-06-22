@@ -1,0 +1,517 @@
+# Tested with redocly:
+# npx @redocly/cli@latest lint openapi.yaml --extends=recommended --skip-rule "no-server-example.com" --skip-rule "operation-4xx-response"
+openapi: 3.0.3
+info:
+  title: MovieDB API
+  version: 0.1.0
+  description: OpenAPI schema for the MovieDB local REST API.
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+servers:
+  - url: http://localhost:8765
+    description: Local MovieDB server
+tags:
+  - name: Movies
+    description: Operations related to movies in the local database.
+  - name: Lookup
+    description: Operations related to looking up movies from external sources.
+  - name: Stats
+    description: Operations related to movie collection statistics.
+  - name: Images
+    description: Operations related to movie cover images.
+paths:
+  /api/stats:
+    get:
+      tags: [Stats]
+      security: []
+      summary: Get collection statistics
+      operationId: getStats
+      responses:
+        "200":
+          description: Collection statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Stats"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /api/lookup:
+    post:
+      tags: [Lookup]
+      security: []
+      summary: Look up movie candidates from configured external sources
+      operationId: lookupMovieCandidates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LookupRequest"
+      responses:
+        "200":
+          description: Matching movie candidates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LookupCandidate"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+
+  /api/movies:
+    get:
+      tags: [Movies]
+      security: []
+      summary: List movies
+      operationId: listMovies
+      parameters:
+        - name: q
+          in: query
+          description: Optional search text.
+          schema:
+            type: string
+        - name: fields
+          in: query
+          description: Optional comma-separated fields to search.
+          schema:
+            type: string
+            example: title,genre,cast
+      responses:
+        "200":
+          description: Movies matching the search criteria
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Movie"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+    post:
+      tags: [Movies]
+      security: []
+      summary: Create movies
+      description: Creates one movie from a complete movie object or creates/enriches movies from a list of titles.
+      operationId: createMovies
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMoviesRequest"
+      responses:
+        "200":
+          description: Created movies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Movie"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Duplicate movie conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DuplicateMovieError"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/movies/{id}:
+    parameters:
+      - $ref: "#/components/parameters/MovieId"
+    get:
+      tags: [Movies]
+      security: []
+      summary: Get a movie
+      operationId: getMovie
+      responses:
+        "200":
+          description: Movie record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Movie"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+    put:
+      tags: [Movies]
+      security: []
+      summary: Replace a movie
+      operationId: updateMovie
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Movie"
+      responses:
+        "200":
+          description: Updated movie
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Movie"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      tags: [Movies]
+      security: []
+      summary: Delete a movie
+      operationId: deleteMovie
+      responses:
+        "204":
+          description: Movie deleted or was already absent
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/movies/{id}/refresh:
+    parameters:
+      - $ref: "#/components/parameters/MovieId"
+    post:
+      tags: [Movies]
+      security: []
+      summary: Refresh a movie from its external source data
+      operationId: refreshMovie
+      responses:
+        "200":
+          description: Refreshed movie
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Movie"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
+  /api/movies/{id}/image:
+    parameters:
+      - $ref: "#/components/parameters/MovieId"
+    post:
+      tags: [Images]
+      security: []
+      summary: Upload cover art for a movie
+      operationId: uploadMovieImage
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [cover]
+              properties:
+                cover:
+                  type: string
+                  format: binary
+                  description: JPEG, PNG, GIF, or WebP image up to 20 MB.
+      responses:
+        "200":
+          description: Movie with updated image path
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Movie"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      tags: [Images]
+      security: []
+      summary: Delete cover art for a movie
+      operationId: deleteMovieImage
+      responses:
+        "200":
+          description: Movie with cleared image path
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Movie"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /images/{name}:
+    get:
+      tags: [Images]
+      security: []
+      summary: Fetch a stored movie image
+      operationId: getImage
+      parameters:
+        - $ref: "#/components/parameters/ImageName"
+      responses:
+        "200":
+          description: Image bytes
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/gif:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+    head:
+      tags: [Images]
+      security: []
+      summary: Check whether a stored movie image exists
+      operationId: headImage
+      parameters:
+        - $ref: "#/components/parameters/ImageName"
+      responses:
+        "200":
+          description: Image exists
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+components:
+  parameters:
+    MovieId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Movie identifier.
+    ImageName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*\.(gif|jfif|jpe?g|png|webp)$'
+      description: Stored image file name.
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        text/plain:
+          schema:
+            type: string
+    BadGateway:
+      description: Upstream lookup or refresh failed
+      content:
+        text/plain:
+          schema:
+            type: string
+    InternalServerError:
+      description: Internal server error
+      content:
+        text/plain:
+          schema:
+            type: string
+    MethodNotAllowed:
+      description: Method not allowed
+      content:
+        text/plain:
+          schema:
+            type: string
+    NotFound:
+      description: Resource not found
+      content:
+        text/plain:
+          schema:
+            type: string
+    PayloadTooLarge:
+      description: Request body too large
+      content:
+        text/plain:
+          schema:
+            type: string
+
+  schemas:
+    Stats:
+      type: object
+      required: [totalMovies]
+      properties:
+        totalMovies:
+          type: integer
+          format: int32
+          minimum: 0
+
+    LookupRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          description: Movie title or supported source URL to look up.
+        format:
+          type: string
+          default: DVD
+          example: DVD
+
+    CreateMoviesRequest:
+      type: object
+      description: Provide either `movie` for one explicit movie record or `titles` for bulk title lookup/import.
+      properties:
+        titles:
+          type: array
+          items:
+            type: string
+        movie:
+          $ref: "#/components/schemas/Movie"
+        format:
+          type: string
+          default: DVD
+          example: DVD
+        duplicatePolicy:
+          $ref: "#/components/schemas/DuplicatePolicy"
+
+    DuplicatePolicy:
+      type: string
+      enum:
+        - cancel
+        - merge_new
+        - merge_old
+        - overwrite
+      default: cancel
+
+    DuplicateMovieError:
+      type: object
+      required: [error, candidate, existing]
+      properties:
+        error:
+          type: string
+          example: duplicate movie
+        candidate:
+          $ref: "#/components/schemas/Movie"
+        existing:
+          $ref: "#/components/schemas/Movie"
+
+    LookupCandidate:
+      type: object
+      required: [movie, matchType, provider, description]
+      properties:
+        movie:
+          $ref: "#/components/schemas/Movie"
+        matchType:
+          type: string
+          example: exact
+        provider:
+          type: string
+          example: TMDb
+        description:
+          type: string
+
+    Movie:
+      type: object
+      required:
+        - title
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        format:
+          type: string
+          example: DVD
+        studio:
+          type: string
+        directors:
+          type: array
+          items:
+            type: string
+        cast:
+          type: array
+          items:
+            type: string
+        producers:
+          type: array
+          items:
+            type: string
+        credits:
+          type: object
+          additionalProperties:
+            type: string
+        genre:
+          type: array
+          items:
+            type: string
+        releaseDate:
+          type: string
+          description: Date or year as supplied by the source.
+          example: "1999-03-31"
+        runtime:
+          type: string
+          example: 136 min
+        rating:
+          type: string
+          example: PG-13
+        myRating:
+          type: string
+          example: "8"
+        synopsis:
+          type: string
+        sourceUrl:
+          type: string
+        amazonUrl:
+          type: string
+        imagePath:
+          type: string
+          description: Local image URL path under `/images/`.
+          example: /images/movie-cover.jpg
+        location:
+          type: string
+        notes:
+          type: string
+        externalIds:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            imdb: tt0133093
+            tmdb: "603"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time

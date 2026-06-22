@@ -326,6 +326,23 @@ button:disabled {
   text-shadow: none;
 }
 
+.sort-checkbox {
+  display: flex;
+  grid-column: 2 / -1;
+  align-items: center;
+  gap: 6px;
+  margin-top: -2px;
+}
+
+.sort-checkbox input {
+  margin: 0;
+  padding: 0;
+}
+
+.sort-checkbox.disabled {
+  opacity: .48;
+}
+
 .results {
   display: grid;
   gap: 8px;

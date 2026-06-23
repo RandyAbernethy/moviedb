@@ -433,19 +433,24 @@ $("addForm").addEventListener("submit", async (event) => {
   const titles = $("titles").value.split(/\n|;/).map((title) => title.trim()).filter(Boolean);
   if (!titles.length) return;
   const button = event.submitter;
-  button.disabled = true;
+  if (button) {
+    button.disabled = true;
+  }
   setStatus(`Adding ${titles.length} movie${titles.length === 1 ? "" : "s"}...`);
   try {
     const added = [];
+    const skipped = [];
     for (const title of titles) {
       setStatus(`Adding ${title}...`);
-      const saved = await addOneMovie(title);
+      const saved = await addOneMovie(title, "", { skipLookupMisses: true });
       if (saved) {
         added.push(saved);
+      } else {
+        skipped.push(title);
       }
     }
     $("titles").value = "";
-    setStatus(`Added ${added.length} movie${added.length === 1 ? "" : "s"}.`);
+    setAddMoviesStatus(added.length, skipped);
     await loadMovies();
     if (added[0]) {
       await openMovie(added[0].id);
@@ -453,12 +458,24 @@ $("addForm").addEventListener("submit", async (event) => {
   } catch (error) {
     setStatus(error.message);
   } finally {
-    button.disabled = false;
+    if (button) {
+      button.disabled = false;
+    }
   }
 });
 
-async function addOneMovie(title, duplicatePolicy = "") {
-  const candidate = await chooseMovieCandidate(title);
+function setAddMoviesStatus(addedCount, skipped) {
+  const addedText = `Added ${addedCount} movie${addedCount === 1 ? "" : "s"}`;
+  if (!skipped.length) {
+    setStatus(`${addedText}.`);
+    return;
+  }
+  const skippedText = `skipped ${skipped.length}: ${skipped.join(", ")}`;
+  setStatus(`${addedText}; ${skippedText}.`);
+}
+
+async function addOneMovie(title, duplicatePolicy = "", options = {}) {
+  const candidate = await chooseMovieCandidate(title, undefined, options);
   if (!candidate) {
     return null;
   }
@@ -486,11 +503,19 @@ async function saveMovieCandidate(movie, duplicatePolicy = "") {
   }
 }
 
-async function chooseMovieCandidate(title, format = $("format").value) {
-  const candidates = await request("/api/lookup", {
-    method: "POST",
-    body: JSON.stringify({ title, format }),
-  });
+async function chooseMovieCandidate(title, format = $("format").value, options = {}) {
+  let candidates;
+  try {
+    candidates = await request("/api/lookup", {
+      method: "POST",
+      body: JSON.stringify({ title, format }),
+    });
+  } catch (error) {
+    if (options.skipLookupMisses && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
   const exact = candidates.filter((candidate) => candidate.matchType === "exact");
   if (exact.length === 1) {
     return exact[0];

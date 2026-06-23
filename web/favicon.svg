@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="MDB">
+  <defs>
+    <linearGradient id="bg" x1="8" y1="4" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1677ff"/>
+      <stop offset="0.48" stop-color="#0d2d55"/>
+      <stop offset="1" stop-color="#050b18"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="14" y1="8" x2="50" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#60d6ff" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#60d6ff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="12" fill="url(#bg)"/>
+  <rect x="4" y="4" width="56" height="56" rx="10" fill="url(#shine)" opacity="0.45"/>
+  <rect x="5.5" y="5.5" width="53" height="53" rx="9" fill="none" stroke="#60d6ff" stroke-width="3"/>
+  <text x="32" y="39" fill="#eef8ff" font-family="Segoe UI, Arial, sans-serif" font-size="21" font-weight="800" letter-spacing="-1" text-anchor="middle">MDB</text>
+  <path d="M15 47h34" stroke="#60d6ff" stroke-width="3" stroke-linecap="round" opacity="0.82"/>
+</svg>

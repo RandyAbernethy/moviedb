@@ -12,6 +12,7 @@ class FakeEvent {
     this.dataTransfer = options.dataTransfer || null;
     this.clipboardData = options.clipboardData || null;
     this.target = options.target || null;
+    this.submitter = options.submitter || null;
     this.defaultPrevented = false;
     this.propagationStopped = false;
   }
@@ -242,7 +243,17 @@ function jsonResponse(payload) {
   return {
     ok: true,
     status: 200,
+    text: async () => JSON.stringify(payload),
     json: async () => payload,
+  };
+}
+
+function textResponse(status, text) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => text,
+    json: async () => JSON.parse(text),
   };
 }
 
@@ -265,11 +276,15 @@ const context = {
       return jsonResponse({ totalMovies: movies.length });
     }
     if (requestPath.startsWith("/api/lookup")) {
+      const payload = JSON.parse(options.body || "{}");
+      if (payload.title === "Missing Movie") {
+        return textResponse(404, "no movie matches found");
+      }
       return jsonResponse([{
         matchType: "exact",
         movie: {
           id: "lookup-id",
-          title: "Source Movie",
+          title: payload.title || "Source Movie",
           format: "Blu-ray",
           genre: ["Drama"],
           releaseDate: "1999",
@@ -316,6 +331,14 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 const results = document.getElementById("results");
 const sortedMovieIDs = () => Array.from(context.sortedMovies(), (movie) => movie.id);
 assert.equal(document.getElementById("title").value, "", "detail view starts empty");
+
+document.getElementById("titles").value = "Missing Movie\nFound Movie";
+document.getElementById("addForm").dispatchEvent(new FakeEvent("submit", { submitter: document.createElement("button") }));
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.ok(requests.some((request) => request.path === "/api/lookup" && request.options.body.includes("Missing Movie")), "bulk add tries the missing first title");
+assert.ok(requests.some((request) => request.path === "/api/lookup" && request.options.body.includes("Found Movie")), "bulk add continues after a missing title");
+assert.equal(document.getElementById("status").textContent, "Added 1 movie; skipped 1: Missing Movie.", "bulk add reports skipped missing titles");
+assert.equal(document.getElementById("titles").value, "", "bulk add clears title list after processing misses and successes");
 
 document.getElementById("emptyNewButton").dispatchEvent(new FakeEvent("click"));
 document.getElementById("title").value = "Source Movie";

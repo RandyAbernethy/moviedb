@@ -80,6 +80,10 @@ class FakeElement {
 
   setPointerCapture() {}
 
+  requestSubmit(submitter = null) {
+    this.dispatchEvent(new FakeEvent("submit", { submitter }));
+  }
+
   classList = {
     add: (...names) => {
       const existing = new Set(this.className.split(/\s+/).filter(Boolean));
@@ -296,6 +300,9 @@ const context = {
       const payload = JSON.parse(options.body);
       return jsonResponse([{ ...payload.movie, id: "draft-cover-id", imagePath: "" }]);
     }
+    if (requestPath.startsWith("/api/movies/") && options.method === "PUT") {
+      return jsonResponse(JSON.parse(options.body));
+    }
     if (requestPath === "/api/movies/draft-cover-id/image" && options.method === "POST") {
       return jsonResponse({
         id: "draft-cover-id",
@@ -371,6 +378,21 @@ assert.deepEqual(revokedObjectURLs, ["blob:draft-cover.png"], "temporary draft c
 context.openMovie("a", { focusResult: true });
 assert.equal(document.getElementById("title").value, "Alpha", "opening first movie populates detail view");
 assert.equal(document.querySelector(".result.active")?.dataset.movieId, "a", "first movie is active");
+
+document.getElementById("notes").value = "Saved by shortcut";
+const ctrlSave = new FakeEvent("keydown", { key: "s", ctrlKey: true });
+document.body.dispatchEvent(ctrlSave);
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(ctrlSave.defaultPrevented, true, "Ctrl+S prevents the browser save-page shortcut");
+assert.ok(requests.some((request) => request.path === "/api/movies/a" && request.method === "PUT" && request.options.body.includes("Saved by shortcut")), "Ctrl+S saves the open movie detail form");
+assert.equal(document.getElementById("status").textContent, "Saved Alpha.", "Ctrl+S reports a saved movie");
+
+document.getElementById("notes").value = "Saved by command shortcut";
+const commandSave = new FakeEvent("keydown", { key: "S", metaKey: true });
+document.body.dispatchEvent(commandSave);
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(commandSave.defaultPrevented, true, "Cmd+S prevents the browser save-page shortcut");
+assert.ok(requests.some((request) => request.path === "/api/movies/a" && request.method === "PUT" && request.options.body.includes("Saved by command shortcut")), "Cmd+S saves the open movie detail form");
 
 const down = new FakeEvent("keydown", { key: "ArrowDown" });
 results.dispatchEvent(down);

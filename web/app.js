@@ -604,11 +604,34 @@ $("ignoreLeadingThe").addEventListener("change", () => {
   ignoreLeadingThe = $("ignoreLeadingThe").checked;
   renderResults();
 });
+document.addEventListener("keydown", handleAppShortcutKeydown);
 
 function updateIgnoreLeadingTheAvailability() {
   const enabled = ($("sortField").value || "title") === "title";
   $("ignoreLeadingThe").disabled = !enabled;
   $("ignoreLeadingTheLabel").classList.toggle("disabled", !enabled);
+}
+
+function handleAppShortcutKeydown(event) {
+  if (!isSaveShortcut(event) || !current || $("movieForm").classList.contains("hidden")) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  submitMovieForm();
+}
+
+function isSaveShortcut(event) {
+  return !event.altKey && (event.ctrlKey || event.metaKey) && String(event.key || "").toLowerCase() === "s";
+}
+
+function submitMovieForm() {
+  const form = $("movieForm");
+  if (typeof form.requestSubmit === "function") {
+    form.requestSubmit();
+    return;
+  }
+  form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 }
 
 $("movieForm").addEventListener("submit", async (event) => {

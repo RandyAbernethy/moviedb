@@ -388,6 +388,77 @@ func TestDatabaseDirUsesDBPathOverride(t *testing.T) {
 	}
 }
 
+func TestLoadDotEnvIgnoresMissingFile(t *testing.T) {
+	if err := loadDotEnv(filepath.Join(t.TempDir(), ".env")); err != nil {
+		t.Fatalf("expected missing .env to be ignored, got %v", err)
+	}
+}
+
+func TestLoadDotEnvSetsValuesWithoutOverwritingEnvironment(t *testing.T) {
+	keys := []string{
+		"MOVIEDB_TEST_DOTENV_A",
+		"MOVIEDB_TEST_DOTENV_QUOTED",
+		"MOVIEDB_TEST_DOTENV_SINGLE",
+		"MOVIEDB_TEST_DOTENV_INLINE",
+		"MOVIEDB_TEST_DOTENV_HASH",
+		"MOVIEDB_TEST_DOTENV_EXPORTED",
+		"MOVIEDB_TEST_DOTENV_EMPTY",
+		"MOVIEDB_TEST_DOTENV_EXISTING",
+	}
+	unsetEnvForTest(t, keys...)
+	if err := os.Setenv("MOVIEDB_TEST_DOTENV_EXISTING", "from-env"); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(t.TempDir(), ".env")
+	content := strings.Join([]string{
+		"# MovieDB local settings",
+		"MOVIEDB_TEST_DOTENV_A=from-file",
+		`MOVIEDB_TEST_DOTENV_QUOTED="quoted value"`,
+		"MOVIEDB_TEST_DOTENV_SINGLE='single value'",
+		"MOVIEDB_TEST_DOTENV_INLINE=keep this # drop this comment",
+		"MOVIEDB_TEST_DOTENV_HASH=keep#hash",
+		"export MOVIEDB_TEST_DOTENV_EXPORTED=exported",
+		"MOVIEDB_TEST_DOTENV_EMPTY=",
+		"MOVIEDB_TEST_DOTENV_EXISTING=from-file",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := loadDotEnv(path); err != nil {
+		t.Fatal(err)
+	}
+
+	expected := map[string]string{
+		"MOVIEDB_TEST_DOTENV_A":        "from-file",
+		"MOVIEDB_TEST_DOTENV_QUOTED":   "quoted value",
+		"MOVIEDB_TEST_DOTENV_SINGLE":   "single value",
+		"MOVIEDB_TEST_DOTENV_INLINE":   "keep this",
+		"MOVIEDB_TEST_DOTENV_HASH":     "keep#hash",
+		"MOVIEDB_TEST_DOTENV_EXPORTED": "exported",
+		"MOVIEDB_TEST_DOTENV_EMPTY":    "",
+		"MOVIEDB_TEST_DOTENV_EXISTING": "from-env",
+	}
+	for key, want := range expected {
+		if got := os.Getenv(key); got != want {
+			t.Fatalf("%s = %q, want %q", key, got, want)
+		}
+	}
+}
+
+func TestLoadDotEnvReportsMalformedLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte("MOVIEDB_TEST_DOTENV_BROKEN\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := loadDotEnv(path)
+	if err == nil || !strings.Contains(err.Error(), "expected KEY=VALUE") {
+		t.Fatalf("expected malformed .env error, got %v", err)
+	}
+}
+
 func TestValidateRemoteFetchURLRejectsUnsafeTargets(t *testing.T) {
 	values := []string{
 		"file:///etc/passwd",
@@ -486,4 +557,22 @@ func postManualMovie(t *testing.T, server *Server, movie Movie) *httptest.Respon
 	rec := httptest.NewRecorder()
 	server.handleMovies(rec, req)
 	return rec
+}
+
+func unsetEnvForTest(t *testing.T, keys ...string) {
+	t.Helper()
+	for _, key := range keys {
+		key := key
+		old, hadOld := os.LookupEnv(key)
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if hadOld {
+				_ = os.Setenv(key, old)
+			} else {
+				_ = os.Unsetenv(key)
+			}
+		})
+	}
 }

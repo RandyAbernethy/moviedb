@@ -210,7 +210,7 @@ const requiredIDs = [
   "releaseDate", "runtime", "rating", "myRating", "synopsis", "sourceUrl", "amazonUrl",
   "location", "notes", "search", "fieldList", "resultCount", "results",
   "sortField", "sortDirection", "empty", "movieForm", "poster", "addForm",
-  "titles", "format", "status", "selectAllFields", "clearFields", "deleteButton",
+  "titles", "status", "selectAllFields", "clearFields", "deleteButton",
   "totalMovies", "coverArt", "coverStatus", "posterTarget", "deleteCoverArt", "refreshButton",
   "newButton", "emptyNewButton", "ignoreLeadingThe", "ignoreLeadingTheLabel",
 ];
@@ -223,10 +223,12 @@ document.body.appendChild(document.getElementById("results"));
 const movies = [
   { id: "n", title: "2001: A Space Odyssey", format: "Blu-ray", genre: [], releaseDate: "1968" },
   { id: "a", title: "Alpha", format: "DVD", genre: [], releaseDate: "2001" },
+  { id: "alps", title: "Alps", format: "DVD", genre: [], releaseDate: "2011" },
   { id: "abyss", title: "The Abyss", format: "DVD", genre: [], releaseDate: "1989" },
   { id: "t", title: "The Artist", format: "DVD", genre: [], releaseDate: "2011" },
   { id: "b", title: "Bravo", format: "DVD", genre: [], releaseDate: "2002" },
   { id: "c", title: "Charlie", format: "DVD", genre: [], releaseDate: "2003" },
+  { id: "matrix", title: "The Matrix", format: "DVD", genre: [], releaseDate: "1999" },
   { id: "term", title: "Terminator", format: "DVD", genre: [], releaseDate: "1984" },
 ];
 const requests = [];
@@ -300,8 +302,21 @@ const context = {
       const payload = JSON.parse(options.body);
       return jsonResponse([{ ...payload.movie, id: "draft-cover-id", imagePath: "" }]);
     }
+    if (requestPath === "/api/movies/a" && options.method === "DELETE") {
+      return textResponse(204, "");
+    }
     if (requestPath.startsWith("/api/movies/") && options.method === "PUT") {
       return jsonResponse(JSON.parse(options.body));
+    }
+    if (requestPath === "/api/movies/a/refresh" && options.method === "POST") {
+      return jsonResponse({
+        id: "a",
+        title: "Source Movie",
+        format: "DVD",
+        genre: ["Drama"],
+        releaseDate: "1999",
+        imagePath: "/images/source.jpg",
+      });
     }
     if (requestPath === "/api/movies/draft-cover-id/image" && options.method === "POST") {
       return jsonResponse({
@@ -344,10 +359,13 @@ document.getElementById("addForm").dispatchEvent(new FakeEvent("submit", { submi
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.ok(requests.some((request) => request.path === "/api/lookup" && request.options.body.includes("Missing Movie")), "bulk add tries the missing first title");
 assert.ok(requests.some((request) => request.path === "/api/lookup" && request.options.body.includes("Found Movie")), "bulk add continues after a missing title");
+assert.ok(requests.some((request) => request.path === "/api/lookup" && request.options.body.includes('"format":"DVD"')), "bulk add lookups default to DVD");
+assert.ok(requests.some((request) => request.path === "/api/movies" && request.method === "POST" && request.options.body.includes('"format":"DVD"')), "bulk add saves default format as DVD");
 assert.equal(document.getElementById("status").textContent, "Added 1 movie; skipped 1: Missing Movie.", "bulk add reports skipped missing titles");
 assert.equal(document.getElementById("titles").value, "", "bulk add clears title list after processing misses and successes");
 
 document.getElementById("emptyNewButton").dispatchEvent(new FakeEvent("click"));
+assert.equal(document.getElementById("movieFormat").value, "DVD", "new blank movies default to DVD");
 document.getElementById("title").value = "Source Movie";
 document.getElementById("title").dispatchEvent(new FakeEvent("input"));
 assert.equal(document.getElementById("refreshButton").disabled, false, "draft with title can update from source");
@@ -394,17 +412,84 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(commandSave.defaultPrevented, true, "Cmd+S prevents the browser save-page shortcut");
 assert.ok(requests.some((request) => request.path === "/api/movies/a" && request.method === "PUT" && request.options.body.includes("Saved by command shortcut")), "Cmd+S saves the open movie detail form");
 
+const ctrlUpdate = new FakeEvent("keydown", { key: "u", ctrlKey: true });
+document.body.dispatchEvent(ctrlUpdate);
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(ctrlUpdate.defaultPrevented, true, "Ctrl+U prevents browser default while updating from source");
+assert.ok(requests.some((request) => request.path === "/api/movies/a/refresh" && request.method === "POST"), "Ctrl+U updates the open movie from source");
+assert.equal(document.getElementById("status").textContent, "Loaded source updates for Source Movie. Click \"Save changes\" to write them to the database.", "Ctrl+U reports source update status");
+
+context.openMovie("a", { focusResult: true });
+const commandUpdate = new FakeEvent("keydown", { key: "U", metaKey: true });
+document.body.dispatchEvent(commandUpdate);
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(commandUpdate.defaultPrevented, true, "Cmd+U prevents browser default while updating from source");
+assert.ok(requests.filter((request) => request.path === "/api/movies/a/refresh" && request.method === "POST").length >= 2, "Cmd+U updates the open movie from source");
+
+const ctrlNew = new FakeEvent("keydown", { key: "n", ctrlKey: true });
+document.body.dispatchEvent(ctrlNew);
+assert.equal(ctrlNew.defaultPrevented, false, "Ctrl+N is left to the browser");
+assert.equal(document.getElementById("title").value, "Source Movie", "Ctrl+N no longer opens a new blank movie");
+
+const commandNew = new FakeEvent("keydown", { key: "N", metaKey: true });
+document.body.dispatchEvent(commandNew);
+assert.equal(commandNew.defaultPrevented, false, "Cmd+N is left to the browser");
+assert.equal(document.getElementById("title").value, "Source Movie", "Cmd+N no longer opens a new blank movie");
+
+const insertNew = new FakeEvent("keydown", { key: "Insert" });
+document.body.dispatchEvent(insertNew);
+assert.equal(insertNew.defaultPrevented, true, "Insert prevents the browser default while opening a new movie");
+assert.equal(document.getElementById("title").value, "", "Insert opens a new blank movie");
+assert.equal(document.getElementById("movieFormat").value, "DVD", "Insert new movie defaults to DVD");
+
+context.openMovie("a", { focusResult: true });
+const deleteTextTarget = document.createElement("input");
+deleteTextTarget.type = "text";
+const deleteRequestsBeforeText = requests.filter((request) => request.path === "/api/movies/a" && request.method === "DELETE").length;
+const textDelete = new FakeEvent("keydown", { key: "Delete", target: deleteTextTarget });
+document.body.dispatchEvent(textDelete);
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(textDelete.defaultPrevented, false, "Delete is left alone while editing text");
+assert.equal(requests.filter((request) => request.path === "/api/movies/a" && request.method === "DELETE").length, deleteRequestsBeforeText, "Delete in a text field does not delete the open movie");
+assert.equal(document.getElementById("title").value, "Alpha", "Delete in a text field leaves the open movie unchanged");
+
+const deleteShortcut = new FakeEvent("keydown", { key: "Delete" });
+document.body.dispatchEvent(deleteShortcut);
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(deleteShortcut.defaultPrevented, true, "Delete prevents the browser default while deleting the open movie");
+assert.ok(requests.some((request) => request.path === "/api/movies/a" && request.method === "DELETE"), "Delete deletes the open movie");
+assert.equal(document.getElementById("movieForm").classList.contains("hidden"), true, "Delete hides the detail form after deleting");
+assert.equal(document.getElementById("empty").classList.contains("hidden"), false, "Delete returns to the empty detail state");
+
+context.openMovie("a", { focusResult: true });
 const down = new FakeEvent("keydown", { key: "ArrowDown" });
 results.dispatchEvent(down);
 assert.equal(down.defaultPrevented, true, "ArrowDown is handled by the results list");
-assert.equal(document.getElementById("title").value, "Bravo", "ArrowDown opens next movie in detail view");
-assert.equal(document.querySelector(".result.active")?.dataset.movieId, "b", "ArrowDown moves active tile");
+assert.equal(document.getElementById("title").value, "Alps", "ArrowDown opens next movie in detail view");
+assert.equal(document.querySelector(".result.active")?.dataset.movieId, "alps", "ArrowDown moves active tile");
 
 const up = new FakeEvent("keydown", { key: "ArrowUp" });
 results.dispatchEvent(up);
 assert.equal(up.defaultPrevented, true, "ArrowUp is handled by the results list");
 assert.equal(document.getElementById("title").value, "Alpha", "ArrowUp opens previous movie in detail view");
 assert.equal(document.querySelector(".result.active")?.dataset.movieId, "a", "ArrowUp moves active tile");
+
+const firstAJump = new FakeEvent("keydown", { key: "a" });
+results.dispatchEvent(firstAJump);
+assert.equal(firstAJump.defaultPrevented, true, "letter keys are handled by the results list");
+assert.equal(document.getElementById("title").value, "Alps", "repeated letter jump advances to the next matching title");
+assert.equal(document.querySelector(".result.active")?.dataset.movieId, "alps", "letter jump moves active tile to next match");
+
+const secondAJump = new FakeEvent("keydown", { key: "a" });
+results.dispatchEvent(secondAJump);
+assert.equal(document.getElementById("title").value, "Alpha", "letter jump wraps to the first matching title");
+assert.equal(document.querySelector(".result.active")?.dataset.movieId, "a", "letter jump wraps active tile");
+
+const noMatchJump = new FakeEvent("keydown", { key: "z" });
+results.dispatchEvent(noMatchJump);
+assert.equal(noMatchJump.defaultPrevented, true, "unmatched letter keys are still handled by the results list");
+assert.equal(document.getElementById("title").value, "Alpha", "unmatched letter jump leaves the current movie unchanged");
+assert.equal(document.querySelector(".result.active")?.dataset.movieId, "a", "unmatched letter jump leaves active tile unchanged");
 
 const letterJump = new FakeEvent("keydown", { key: "c" });
 results.dispatchEvent(letterJump);
@@ -425,23 +510,35 @@ assert.equal(document.getElementById("title").value, "2001: A Space Odyssey", "m
 
 document.getElementById("ignoreLeadingThe").checked = true;
 document.getElementById("ignoreLeadingThe").dispatchEvent(new FakeEvent("change"));
-assert.deepEqual(sortedMovieIDs(), ["n", "abyss", "a", "t", "b", "c", "term"], "title sort can ignore leading The");
+assert.deepEqual(sortedMovieIDs(), ["n", "abyss", "a", "alps", "t", "b", "c", "matrix", "term"], "title sort can ignore leading The");
 
 const ignoredArticleJump = new FakeEvent("keydown", { key: "t" });
 results.dispatchEvent(ignoredArticleJump);
 assert.equal(ignoredArticleJump.defaultPrevented, true, "letter jump still handles keys while ignoring leading The");
 assert.equal(document.getElementById("title").value, "Terminator", "letter jump skips leading-The titles when ignore-leading-the is active");
 
+const ignoredArticleAJump = new FakeEvent("keydown", { key: "a" });
+results.dispatchEvent(ignoredArticleAJump);
+assert.equal(document.getElementById("title").value, "The Abyss", "letter jump includes leading-The titles under their stripped prefix");
+assert.equal(document.querySelector(".result.active")?.dataset.movieId, "abyss", "letter jump wraps to stripped-prefix title");
+
+document.getElementById("ignoreLeadingThe").focus();
+const ignoredArticleGlobalJump = new FakeEvent("keydown", { key: "m" });
+document.body.dispatchEvent(ignoredArticleGlobalJump);
+assert.equal(ignoredArticleGlobalJump.defaultPrevented, true, "global letter jump handles keys after the ignore-leading-the checkbox has focus");
+assert.equal(document.getElementById("title").value, "The Matrix", "global letter jump respects ignore-leading-the sorting");
+assert.equal(document.querySelector(".result.active")?.dataset.movieId, "matrix", "global letter jump moves active tile to stripped-prefix match");
+
 document.getElementById("sortField").value = "releaseDate";
 document.getElementById("sortField").dispatchEvent(new FakeEvent("change"));
 assert.equal(document.getElementById("ignoreLeadingThe").disabled, true, "ignore-leading-the is disabled for non-title sorts");
 assert.equal(document.getElementById("ignoreLeadingThe").checked, true, "ignore-leading-the preference is preserved while disabled");
-assert.deepEqual(sortedMovieIDs(), ["n", "term", "abyss", "a", "b", "c", "t"], "non-title sort ignores the checkbox preference");
+assert.deepEqual(sortedMovieIDs(), ["n", "term", "abyss", "matrix", "a", "b", "c", "alps", "t"], "non-title sort ignores the checkbox preference");
 
 document.getElementById("sortField").value = "title";
 document.getElementById("sortField").dispatchEvent(new FakeEvent("change"));
 assert.equal(document.getElementById("ignoreLeadingThe").disabled, false, "ignore-leading-the is re-enabled for title sorts");
 assert.equal(document.getElementById("ignoreLeadingThe").checked, true, "ignore-leading-the preference is remembered for title sorts");
-assert.deepEqual(sortedMovieIDs(), ["n", "abyss", "a", "t", "b", "c", "term"], "remembered preference applies when returning to title sort");
+assert.deepEqual(sortedMovieIDs(), ["n", "abyss", "a", "alps", "t", "b", "c", "matrix", "term"], "remembered preference applies when returning to title sort");
 
 console.log("keyboard navigation regression passed");

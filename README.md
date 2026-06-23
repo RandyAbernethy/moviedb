@@ -21,7 +21,7 @@ external services or the internet. Features:
 - Allows you to add notes to movies
 - Everything is searchable, making it easy to find movies with a given actor or from a specific genre or with a "watch next" note or ...
 - Works on desktops, laptops, good on tablets and decent on phones
-- A single moviedb instance can be accessed from multiple machines, tablets and phones on your home network or the internet (consider security implications)
+- A single moviedb instance can be accessed from multiple machines, tablets and phones over the network if you choose
 
 The app is about 10MB and a 500 movie database is about 1MB of JSON plus 200MB of cover art (and cover art is optional).
 The repo contains a sample database in the `./data/` directory.
@@ -77,6 +77,10 @@ To listen on specific interfaces, use as many host switches as you require `--ho
 ./moviedb.exe --host 127.0.0.1 --host 192.168.1.25
 ```
 
+> N.B. Network access should be configured with security in mind. Moviedb has none (!) At a minimum, backup your data
+> directory.
+
+
 By default, MovieDB looks for the database under `./data/` relative to the run directory. To choose an alternate
 database directory, use `--db-path`. The directory should contain `movies.json`; cover art is expected in an `images/`
 subdirectory inside that same directory. If `movies.json` does not exist in the selected directory, MovieDB creates an
@@ -86,8 +90,8 @@ empty database there:
 ./moviedb.exe --db-path "D:\MovieDB\data"
 ```
 
-This is a Go program with a browser based UI so it will need very few (if any) tweaks to run on Linux or Mac, I just
-haven't gotten around to testing it. The app has been tested on Windows with Chrome.
+This is a Go program with a browser based UI so while I have not tested it on Mac/Linux, it should need very few (if
+any) tweaks to run. The app has been tested on Windows with Chrome.
 
 
 ## Use
@@ -95,29 +99,25 @@ haven't gotten around to testing it. The app has been tested on Windows with Chr
 The browser UI has three drag-sizable panes:
 
 - **Add/Search** - automatically add and search for movies
-    - You can drop a list of movie titles in the Add box to add in bulk, a dialog provides deconfliction and merge options as needed
-    - You can also search for movies by title, genre, year, actor, etc. or multiple fields to find what you are looking for quickly
-- **Movie List** - displays a list of movies matching the current search criteria in the Search Pane
-    - Sorted by the field you choose
-    - Increasing or decreasing order as you choose
-    - Optionally ignore leading "the" in titles
-    - Navigate up/down with arrow keys or press an alphanumeric key to jump to movies starting with that character
-- **Movie Details** - shows detailed information about the movie currently selected in the Movie List
-    - Allows you to create new movies manually by clicking the "New" button at the bottom of the pane
-    - Allows you to edit any field including cover art (changes are lost when you navigate away unless you press "Save changes")
-    - You can drag/drop or copy/paste cover art to update it or use the COVER ART CHANGE/DELETE buttons
-    - To pull fresh data from the internet for a movie, click the "Update from source" button at the bottom of the details pane
-    - To delete a movie altogether, click the "Delete" button at the bottom
+    - "Add movie titles" - Drop a list of movie titles here then click "Add movies" to bulk add using internet data, a dialog provides deconfliction and merge options when needed
+    - "Search collection" - Enter a title, genre, year, actor, etc. (select from one or multiple fields) to find what you are looking for quickly
+- **Results list** - displays the movies matching the current search criteria
+    - "Sorted by" - Chooses the field to sort by
+    - "A-Z"/"Z-A" - Sets the search order increasing or decreasing
+    - "Ignore leading 'the'" - Optionally ignores a leading "the" in titles when sorting (e.g., when checked "The Matrix" would be sorted under "M" instead of "T")
+    - Navigation - up/down with arrow keys or press an alphanumeric key to jump through movies starting with that character
+- **Movie details** - shows detailed information about the movie currently selected in the Results List
+    - "New" - Allows you to create new movies manually (short cut: `Ins`)
+    - You can always edit any field including cover art which you can drag/drop or copy/paste to update or use the COVER ART CHANGE/DELETE buttons
+    - "Save changes" - Changes are lost when you navigate away from a movie unless you save (short cut: `Ctrl`/`Cmd`+`S`)
+    - "Update from source" - Pulls fresh data from the internet for a movie, if you don't like it, don't save it (short cut: `Ctrl`/`Cmd`+`U`)
+    - "Delete" - To delete a movie altogether  (short cut: `Del`)
 
-> N.B. Edits made in the UI are only saved if you click "Save changes"!! This includes creating new movies with "New",
-> editing movies, updating Cover Art and updating from the internet with "Update from source". All changes are lost when
-> you navigate away from a movie unless you save. Adding movies automatically in the left pane persists movie additions
-> immediately after deconfliction dialogs are answered with a savable option.
 
 
 ---
 
-![UI](./moviedb-screenshot-2026-06-20-164644.png)
+![UI](./moviedb-screenshot-20260623.png)
 
 ---
 
@@ -130,14 +130,26 @@ to pull down movie information reliably, you should create an account at one of 
 and then generate an API key for MovieDB to use.
 
 "The Movie Database" (TMDB) is a popular, user editable database for movies and TV shows and perhaps the best option for
-MovieDB. MovieDB can enrich titles with TMDB data if the `TMDB_API_KEY` or `TMDB_BEARER_TOKEN` environment variable is
-set. When looking up movie data, MovieDB checks TMDB first if a TMDB key or token is set.
+MovieDB. You can create an account for free and then generate an API Key for MovieDB to use. MovieDB can then enrich
+titles with TMDB data if the `TMDB_API_KEY` (or `TMDB_BEARER_TOKEN`) environment variable is set. When looking up movie
+data, MovieDB checks TMDB first if a TMDB key or token is set.
 
 If TMDB settings are not found, MovieDB will check for an Internet Movie Database (IMDB) key in the `OMDB_API_KEY`
 environment variable. If found it will use the OMDB API to retrieve data from IMDB.
 
 If no keys are set, MovieDB attempts to load data from public Wikidata and Wikipedia data. This almost always fails
 these days due to anti-scrape and rate limiting but you can always enter your own data and cover art manually.
+
+MovieDB also loads a `.env` file from the application directory at startup if present so you can save your keys in the
+file for convenience. Values already set in the shell take precedence over `.env` values. Be sure to tell tools like git
+to ignore your `.env` file.
+
+Example `.env`:
+
+```text
+TMDB_API_KEY=your_tmdb_v3_api_key
+
+```
 
 To set keys in PowerShell:
 
@@ -146,10 +158,10 @@ $env:TMDB_API_KEY="your_tmdb_v3_api_key"
 ./moviedb.exe
 ```
 
-or:
+or on the Mac/Linux:
 
-```powershell
-$env:OMDB_API_KEY="your_omdb_api_key"
+```bash
+export OMDB_API_KEY="your_omdb_api_key"
 ./moviedb.exe
 ```
 

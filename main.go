@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"embed"
@@ -648,6 +649,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if err := loadDotEnv(filepath.Join(root, ".env")); err != nil {
+		log.Fatal(err)
+	}
 	dataDir := databaseDir(root, *dbPath)
 	store, err := NewStore(filepath.Join(dataDir, "movies.json"))
 	if err != nil {
@@ -714,6 +718,107 @@ func cleanAbsPath(path string) string {
 		return filepath.Clean(abs)
 	}
 	return filepath.Clean(path)
+}
+
+func loadDotEnv(path string) error {
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for lineNo := 1; scanner.Scan(); lineNo++ {
+		key, value, ok, err := parseDotEnvLine(scanner.Text())
+		if err != nil {
+			return fmt.Errorf("%s:%d: %w", path, lineNo, err)
+		}
+		if !ok {
+			continue
+		}
+		if _, exists := os.LookupEnv(key); exists {
+			continue
+		}
+		if err := os.Setenv(key, value); err != nil {
+			return fmt.Errorf("%s:%d: %w", path, lineNo, err)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func parseDotEnvLine(line string) (string, string, bool, error) {
+	line = strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))
+	if line == "" || strings.HasPrefix(line, "#") {
+		return "", "", false, nil
+	}
+	if strings.HasPrefix(line, "export ") {
+		line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+	}
+	key, rawValue, found := strings.Cut(line, "=")
+	if !found {
+		return "", "", false, errors.New("expected KEY=VALUE")
+	}
+	key = strings.TrimSpace(key)
+	if !isDotEnvKey(key) {
+		return "", "", false, fmt.Errorf("invalid environment variable name %q", key)
+	}
+	value, err := parseDotEnvValue(rawValue)
+	if err != nil {
+		return "", "", false, err
+	}
+	return key, value, true, nil
+}
+
+func isDotEnvKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for i, r := range key {
+		if r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || i > 0 && r >= '0' && r <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func parseDotEnvValue(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(value, `"`) {
+		if !strings.HasSuffix(value, `"`) || len(value) == 1 {
+			return "", errors.New("unterminated double-quoted value")
+		}
+		unquoted, err := strconv.Unquote(value)
+		if err != nil {
+			return "", err
+		}
+		return unquoted, nil
+	}
+	if strings.HasPrefix(value, "'") {
+		if !strings.HasSuffix(value, "'") || len(value) == 1 {
+			return "", errors.New("unterminated single-quoted value")
+		}
+		return value[1 : len(value)-1], nil
+	}
+	return stripDotEnvInlineComment(value), nil
+}
+
+func stripDotEnvInlineComment(value string) string {
+	for i, r := range value {
+		if r == '#' && (i == 0 || value[i-1] == ' ' || value[i-1] == '\t') {
+			return strings.TrimSpace(value[:i])
+		}
+	}
+	return strings.TrimSpace(value)
 }
 
 func fileExists(path string) bool {

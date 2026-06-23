@@ -11,12 +11,13 @@ let pendingCoverArtURL = "";
 let columnWidths = defaultColumnWidths();
 
 const maxCoverArtBytes = 20 * 1024 * 1024;
+const defaultMovieFormat = "DVD";
 const allowedCoverTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
 function blankMovie() {
   return {
     title: "",
-    format: $("format").value || "DVD",
+    format: defaultMovieFormat,
     studio: "",
     directors: [],
     cast: [],
@@ -321,10 +322,28 @@ function isTitleJumpKey(event) {
 
 function jumpToMovieByTitlePrefix(prefix) {
   const normalizedPrefix = prefix.toLowerCase();
-  const match = sortedMovies().find((movie) => titleJumpText(movie).startsWith(normalizedPrefix));
+  const ordered = sortedMovies();
+  const startIndex = ordered.findIndex((movie) => current && movie.id === current.id);
+  const match = findNextTitlePrefixMatch(ordered, normalizedPrefix, startIndex);
   if (match) {
     selectMovie(match, { focusResult: true });
+    return true;
   }
+  return false;
+}
+
+function findNextTitlePrefixMatch(ordered, normalizedPrefix, startIndex) {
+  if (!ordered.length) {
+    return null;
+  }
+  const offset = startIndex === -1 ? 0 : 1;
+  for (let step = 0; step < ordered.length; step++) {
+    const index = (Math.max(startIndex, 0) + offset + step) % ordered.length;
+    if (titleJumpText(ordered[index]).startsWith(normalizedPrefix)) {
+      return ordered[index];
+    }
+  }
+  return null;
 }
 
 function titleJumpText(movie) {
@@ -488,7 +507,7 @@ async function saveMovieCandidate(movie, duplicatePolicy = "") {
     try {
       const added = await request("/api/movies", {
         method: "POST",
-        body: JSON.stringify({ movie, format: $("format").value, duplicatePolicy: policy }),
+        body: JSON.stringify({ movie, format: defaultMovieFormat, duplicatePolicy: policy }),
       });
       return added[0] || null;
     } catch (error) {
@@ -503,7 +522,7 @@ async function saveMovieCandidate(movie, duplicatePolicy = "") {
   }
 }
 
-async function chooseMovieCandidate(title, format = $("format").value, options = {}) {
+async function chooseMovieCandidate(title, format = defaultMovieFormat, options = {}) {
   let candidates;
   try {
     candidates = await request("/api/lookup", {
@@ -613,16 +632,80 @@ function updateIgnoreLeadingTheAvailability() {
 }
 
 function handleAppShortcutKeydown(event) {
-  if (!isSaveShortcut(event) || !current || $("movieForm").classList.contains("hidden")) {
+  if (isShortcutKey(event, "s") && current && !$("movieForm").classList.contains("hidden")) {
+    event.preventDefault();
+    event.stopPropagation();
+    submitMovieForm();
     return;
   }
+
+  if (isShortcutKey(event, "u") && current && !$("refreshButton").disabled) {
+    event.preventDefault();
+    event.stopPropagation();
+    refreshCurrentMovie();
+    return;
+  }
+
+  if (isNewShortcut(event)) {
+    event.preventDefault();
+    event.stopPropagation();
+    startNewMovie();
+    return;
+  }
+
+  const target = eventTarget(event);
+  if (isDeleteShortcut(event) && current && !$("deleteButton").disabled && !isTextEntryTarget(target)) {
+    event.preventDefault();
+    event.stopPropagation();
+    deleteCurrentMovie();
+    return;
+  }
+
+  if (!isTitleJumpKey(event) || isTextEntryTarget(target)) {
+    return;
+  }
+  jumpToMovieByTitlePrefix(event.key);
   event.preventDefault();
   event.stopPropagation();
-  submitMovieForm();
 }
 
-function isSaveShortcut(event) {
-  return !event.altKey && (event.ctrlKey || event.metaKey) && String(event.key || "").toLowerCase() === "s";
+function isShortcutKey(event, key) {
+  return !event.altKey && (event.ctrlKey || event.metaKey) && String(event.key || "").toLowerCase() === key;
+}
+
+function isDeleteShortcut(event) {
+  const key = String(event.key || "").toLowerCase();
+  return !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && (key === "delete" || key === "del");
+}
+
+function isNewShortcut(event) {
+  const key = String(event.key || "").toLowerCase();
+  return !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && (key === "insert" || key === "ins");
+}
+
+function eventTarget(event) {
+  if (event.target && event.target !== document.body) {
+    return event.target;
+  }
+  return document.activeElement;
+}
+
+function isTextEntryTarget(element) {
+  if (!element) {
+    return false;
+  }
+  if (element.isContentEditable) {
+    return true;
+  }
+  const tag = String(element.tagName || "").toLowerCase();
+  if (tag === "textarea" || tag === "select") {
+    return true;
+  }
+  if (tag !== "input") {
+    return false;
+  }
+  const type = String(element.type || "text").toLowerCase();
+  return !["button", "checkbox", "radio", "reset", "submit"].includes(type);
 }
 
 function submitMovieForm() {
@@ -683,7 +766,9 @@ function startNewMovie() {
 $("newButton").addEventListener("click", startNewMovie);
 $("emptyNewButton").addEventListener("click", startNewMovie);
 
-$("refreshButton").addEventListener("click", async () => {
+$("refreshButton").addEventListener("click", refreshCurrentMovie);
+
+async function refreshCurrentMovie() {
   if (!current) return;
   const draft = readForm();
   if (!draft.title) {
@@ -708,7 +793,7 @@ $("refreshButton").addEventListener("click", async () => {
   } catch (error) {
     setStatus(error.message);
   }
-});
+}
 
 fields.title.addEventListener("input", () => {
   if (current && !current.id) {
@@ -926,14 +1011,16 @@ $("deleteCoverArt").addEventListener("click", async () => {
   }
 });
 
-$("deleteButton").addEventListener("click", async () => {
+$("deleteButton").addEventListener("click", deleteCurrentMovie);
+
+async function deleteCurrentMovie() {
   if (!current || !current.id || !confirm(`Delete ${current.title}?`)) return;
   await request(`/api/movies/${current.id}`, { method: "DELETE" });
   current = null;
   $("movieForm").classList.add("hidden");
   $("empty").classList.remove("hidden");
   await loadMovies();
-});
+}
 
 // Layout
 

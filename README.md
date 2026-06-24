@@ -90,8 +90,8 @@ empty database there:
 ./moviedb.exe --db-path "D:\MovieDB\data"
 ```
 
-This is a Go program with a browser based UI so while I have not tested it on Mac/Linux, it should need very few (if
-any) tweaks to run. The app has been tested on Windows with Chrome.
+This is a Go program with a browser based UI so while I have not tested it on Mac, it should need very few (if
+any) tweaks to run. The app has been tested on Windows with Chrome and Linux with Firefox.
 
 
 ## Use

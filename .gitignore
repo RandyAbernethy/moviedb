@@ -20,7 +20,7 @@ go.work.sum
 .gocache/
 
 # Application data directory
-data/
+# data/
 
 # env file
 .env

@@ -58,6 +58,126 @@ func TestNewStoreCreatesEmptyDatabaseFile(t *testing.T) {
 	}
 }
 
+func TestStoreSaveKeepsMemoryUnchangedWhenFlushFails(t *testing.T) {
+	dir := t.TempDir()
+	store := &Store{path: filepath.Join(dir, "missing", "movies.json"), movies: map[string]Movie{
+		"existing": {ID: "existing", Title: "Existing", CreatedAt: time.Unix(1, 0)},
+	}}
+
+	if err := store.Save(Movie{ID: "new", Title: "New"}); err == nil {
+		t.Fatal("expected save to fail when the database directory is missing")
+	}
+	if _, ok := store.Get("new"); ok {
+		t.Fatal("failed save should not be visible in memory")
+	}
+	if got, ok := store.Get("existing"); !ok || got.Title != "Existing" {
+		t.Fatalf("existing movie should remain unchanged, got %+v", got)
+	}
+}
+
+func TestReplaceFileWithRetryRetriesTransientFailure(t *testing.T) {
+	attempts := 0
+	sleeps := 0
+	err := replaceFileWithRetryFunc("movies.json.tmp", "movies.json", func(oldPath, newPath string) error {
+		attempts++
+		if oldPath != "movies.json.tmp" || newPath != "movies.json" {
+			t.Fatalf("unexpected rename paths %q -> %q", oldPath, newPath)
+		}
+		if attempts < 3 {
+			return os.ErrPermission
+		}
+		return nil
+	}, func(time.Duration) {
+		sleeps++
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 3 {
+		t.Fatalf("expected three rename attempts, got %d", attempts)
+	}
+	if sleeps != 2 {
+		t.Fatalf("expected two retry sleeps, got %d", sleeps)
+	}
+}
+
+func TestWriteMoviesFileCreatesBackupOfPreviousMovies(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "movies.json")
+	previous := []Movie{{ID: "old", Title: "Old", CreatedAt: time.Unix(1, 0)}}
+	next := []Movie{{ID: "new", Title: "New", CreatedAt: time.Unix(2, 0)}}
+
+	if err := writeMoviesFile(path, previous, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMoviesFile(path, next, previous); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := readMoviesFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "new" {
+		t.Fatalf("expected primary database to contain new movie, got %+v", got)
+	}
+	backup, err := readMoviesFile(backupMoviesPath(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backup) != 1 || backup[0].ID != "old" {
+		t.Fatalf("expected backup database to contain previous movie, got %+v", backup)
+	}
+}
+
+func TestLoadRecoversFromBackupWhenPrimaryIsUnreadable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "movies.json")
+	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backup := []Movie{{ID: "safe", Title: "Safe", CreatedAt: time.Unix(1, 0)}}
+	if err := writeMoviesFile(backupMoviesPath(path), backup, nil); err != nil {
+		t.Fatal(err)
+	}
+	store := &Store{path: path, movies: map[string]Movie{}}
+
+	if err := store.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := store.Get("safe"); !ok || got.Title != "Safe" {
+		t.Fatalf("expected movie to be loaded from backup, got %+v", got)
+	}
+	restored, err := readMoviesFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restored) != 1 || restored[0].ID != "safe" {
+		t.Fatalf("expected primary database to be restored from backup, got %+v", restored)
+	}
+}
+
+func TestNewStoreRecoversFromBackupWhenPrimaryIsMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "movies.json")
+	backup := []Movie{{ID: "safe", Title: "Safe", CreatedAt: time.Unix(1, 0)}}
+	if err := writeMoviesFile(backupMoviesPath(path), backup, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.Count() != 1 {
+		t.Fatalf("expected store to recover one movie from backup, got %d", store.Count())
+	}
+	if got, ok := store.Get("safe"); !ok || got.Title != "Safe" {
+		t.Fatalf("expected movie to be loaded from backup, got %+v", got)
+	}
+	if _, err := readMoviesFile(path); err != nil {
+		t.Fatalf("expected primary database to be restored, got %v", err)
+	}
+}
+
 func TestImageHandlerRejectsDirectoryListing(t *testing.T) {
 	server := &Server{imageDir: t.TempDir(), imageBase: "/images/"}
 	req := httptest.NewRequest(http.MethodGet, "/images/", nil)

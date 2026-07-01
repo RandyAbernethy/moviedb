@@ -39,6 +39,12 @@ const (
 	maxMultipartBodyBytes = maxImageBytes + (1 << 20)
 )
 
+const (
+	storeReplaceAttempts     = 24
+	storeReplaceInitialDelay = 25 * time.Millisecond
+	storeReplaceMaxDelay     = 250 * time.Millisecond
+)
+
 var allowedImageContentTypes = map[string]string{
 	"image/gif":  ".gif",
 	"image/jpeg": ".jpg",
@@ -136,8 +142,8 @@ func NewStore(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	if !fileExists(path) {
-		if err := os.WriteFile(path, []byte("[]\n"), 0o644); err != nil {
+	if !fileExists(path) && !fileExists(backupMoviesPath(path)) {
+		if err := writeMoviesFile(path, []Movie{}, nil); err != nil {
 			return nil, err
 		}
 	}
@@ -155,35 +161,60 @@ func NewStore(path string) (*Store, error) {
 func (s *Store) Load() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f, err := os.Open(s.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
+
+	movies, err := readMoviesFile(s.path)
 	if err != nil {
-		return err
+		backupPath := backupMoviesPath(s.path)
+		backupMovies, backupErr := readMoviesFile(backupPath)
+		if backupErr != nil {
+			if errors.Is(err, os.ErrNotExist) && errors.Is(backupErr, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		log.Printf("movies database %s was unreadable or missing (%v); recovered from %s", s.path, err, backupPath)
+		if restoreErr := writeMoviesFile(s.path, backupMovies, nil); restoreErr != nil {
+			return fmt.Errorf("restore movies database from backup: %w", restoreErr)
+		}
+		movies = backupMovies
+	}
+	s.movies = moviesByID(movies)
+	return nil
+}
+
+func readMoviesFile(path string) ([]Movie, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
 	}
 	defer f.Close()
 	var movies []Movie
 	if err := json.NewDecoder(f).Decode(&movies); err != nil {
-		return err
+		return nil, err
 	}
+	return movies, nil
+}
+
+func moviesByID(movies []Movie) map[string]Movie {
+	out := make(map[string]Movie, len(movies))
 	for _, m := range movies {
 		if m.ID != "" {
-			s.movies[m.ID] = m
+			out[m.ID] = m
 		}
 	}
-	return nil
+	return out
 }
 
 func (s *Store) MergeDuplicates() (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	next := cloneMovies(s.movies)
 	merged := 0
 	for {
 		var left, right Movie
 		found := false
-		for _, candidate := range s.movies {
-			if duplicate, ok := s.findDuplicateLocked(candidate.ID, candidate); ok {
+		for _, candidate := range next {
+			if duplicate, ok := findDuplicateInMovies(next, candidate.ID, candidate); ok {
 				left, right = candidate, duplicate
 				found = true
 				break
@@ -193,15 +224,19 @@ func (s *Store) MergeDuplicates() (int, error) {
 			break
 		}
 		mergedMovie := mergeMoviesPreferNewer(left, right)
-		delete(s.movies, left.ID)
-		delete(s.movies, right.ID)
-		s.movies[mergedMovie.ID] = mergedMovie
+		delete(next, left.ID)
+		delete(next, right.ID)
+		next[mergedMovie.ID] = mergedMovie
 		merged++
 	}
 	if merged == 0 {
 		return 0, nil
 	}
-	return merged, s.flushLocked()
+	if err := s.flushMoviesLocked(next); err != nil {
+		return 0, err
+	}
+	s.movies = next
+	return merged, nil
 }
 
 func (s *Store) All(query string, fields []string) []Movie {
@@ -243,13 +278,18 @@ func (s *Store) Count() int {
 func (s *Store) Save(m Movie) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if duplicate, ok := s.findDuplicateLocked(m.ID, m); ok {
+	if duplicate, ok := findDuplicateInMovies(s.movies, m.ID, m); ok {
 		return fmt.Errorf("movie duplicates existing record %q", duplicate.Title)
 	}
 	now := time.Now()
 	m = normalizeMovieForStorage(m, "", now)
-	s.movies[m.ID] = m
-	return s.flushLocked()
+	next := cloneMovies(s.movies)
+	next[m.ID] = m
+	if err := s.flushMoviesLocked(next); err != nil {
+		return err
+	}
+	s.movies = next
+	return nil
 }
 
 func (s *Store) AddResolvingDuplicate(m Movie, policy duplicatePolicy) (Movie, *Movie, error) {
@@ -257,28 +297,34 @@ func (s *Store) AddResolvingDuplicate(m Movie, policy duplicatePolicy) (Movie, *
 	defer s.mu.Unlock()
 	now := time.Now()
 	m = normalizeMovieForStorage(m, "", now)
-	if duplicate, ok := s.findDuplicateLocked("", m); ok {
+	if duplicate, ok := findDuplicateInMovies(s.movies, "", m); ok {
 		switch policy {
 		case duplicateMergeNew:
 			merged := mergeMoviesPreferNew(duplicate, m)
-			s.movies[merged.ID] = merged
-			if err := s.flushLocked(); err != nil {
+			next := cloneMovies(s.movies)
+			next[merged.ID] = merged
+			if err := s.flushMoviesLocked(next); err != nil {
 				return Movie{}, nil, err
 			}
+			s.movies = next
 			return merged, nil, nil
 		case duplicateMergeOld:
 			merged := mergeMoviesPreferOld(duplicate, m)
-			s.movies[merged.ID] = merged
-			if err := s.flushLocked(); err != nil {
+			next := cloneMovies(s.movies)
+			next[merged.ID] = merged
+			if err := s.flushMoviesLocked(next); err != nil {
 				return Movie{}, nil, err
 			}
+			s.movies = next
 			return merged, nil, nil
 		case duplicateOverwrite:
-			delete(s.movies, duplicate.ID)
-			s.movies[m.ID] = m
-			if err := s.flushLocked(); err != nil {
+			next := cloneMovies(s.movies)
+			delete(next, duplicate.ID)
+			next[m.ID] = m
+			if err := s.flushMoviesLocked(next); err != nil {
 				return Movie{}, nil, err
 			}
+			s.movies = next
 			return m, nil, nil
 		case duplicateCancel, "":
 			copy := duplicate
@@ -287,22 +333,33 @@ func (s *Store) AddResolvingDuplicate(m Movie, policy duplicatePolicy) (Movie, *
 			return Movie{}, nil, fmt.Errorf("unknown duplicate policy %q", policy)
 		}
 	}
-	s.movies[m.ID] = m
-	if err := s.flushLocked(); err != nil {
+	next := cloneMovies(s.movies)
+	next[m.ID] = m
+	if err := s.flushMoviesLocked(next); err != nil {
 		return Movie{}, nil, err
 	}
+	s.movies = next
 	return m, nil, nil
 }
 
 func (s *Store) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.movies, id)
-	return s.flushLocked()
+	next := cloneMovies(s.movies)
+	delete(next, id)
+	if err := s.flushMoviesLocked(next); err != nil {
+		return err
+	}
+	s.movies = next
+	return nil
 }
 
 func (s *Store) findDuplicateLocked(skipID string, target Movie) (Movie, bool) {
-	for _, existing := range s.movies {
+	return findDuplicateInMovies(s.movies, skipID, target)
+}
+
+func findDuplicateInMovies(movies map[string]Movie, skipID string, target Movie) (Movie, bool) {
+	for _, existing := range movies {
 		if existing.ID == skipID || target.ID != "" && existing.ID == target.ID {
 			continue
 		}
@@ -313,29 +370,142 @@ func (s *Store) findDuplicateLocked(skipID string, target Movie) (Movie, bool) {
 	return Movie{}, false
 }
 
-func (s *Store) flushLocked() error {
-	movies := make([]Movie, 0, len(s.movies))
-	for _, m := range s.movies {
+func cloneMovies(movies map[string]Movie) map[string]Movie {
+	out := make(map[string]Movie, len(movies))
+	for id, movie := range movies {
+		out[id] = movie
+	}
+	return out
+}
+
+func (s *Store) flushMoviesLocked(next map[string]Movie) error {
+	return writeMoviesFile(s.path, sortedMovies(next), sortedMovies(s.movies))
+}
+
+func sortedMovies(movieMap map[string]Movie) []Movie {
+	movies := make([]Movie, 0, len(movieMap))
+	for _, m := range movieMap {
 		movies = append(movies, m)
 	}
 	sort.Slice(movies, func(i, j int) bool {
 		return movies[i].CreatedAt.Before(movies[j].CreatedAt)
 	})
-	tmp := s.path + ".tmp"
-	f, err := os.Create(tmp)
+	return movies
+}
+
+func writeMoviesFile(path string, movies []Movie, previous []Movie) error {
+	data, err := marshalMoviesJSON(movies)
 	if err != nil {
 		return err
 	}
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(movies); err != nil {
-		f.Close()
+	if previous != nil && fileExists(path) {
+		backupData, err := marshalMoviesJSON(previous)
+		if err != nil {
+			return err
+		}
+		if err := replaceFileBytes(backupMoviesPath(path), backupData); err != nil {
+			return fmt.Errorf("backup movies database: %w", err)
+		}
+	}
+	if err := replaceFileBytes(path, data); err != nil {
+		return fmt.Errorf("write movies database: %w", err)
+	}
+	return nil
+}
+
+func marshalMoviesJSON(movies []Movie) ([]byte, error) {
+	if movies == nil {
+		movies = []Movie{}
+	}
+	data, err := json.MarshalIndent(movies, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	data = append(data, '\n')
+	var check []Movie
+	if err := json.Unmarshal(data, &check); err != nil {
+		return nil, fmt.Errorf("validate movies database json: %w", err)
+	}
+	return data, nil
+}
+
+func replaceFileBytes(path string, data []byte) error {
+	tmp, err := writeSyncedTempFile(path, data)
+	if err != nil {
 		return err
 	}
-	if err := f.Close(); err != nil {
-		return err
+	if err := replaceFileWithRetry(tmp, path); err != nil {
+		return fmt.Errorf("%w; valid replacement left at %s", err, tmp)
 	}
-	return os.Rename(tmp, s.path)
+	syncDirBestEffort(filepath.Dir(path))
+	return nil
+}
+
+func writeSyncedTempFile(path string, data []byte) (tmp string, err error) {
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	tmp = filepath.Join(dir, "."+base+"."+newID()+".tmp")
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if err != nil {
+			_ = f.Close()
+			_ = os.Remove(tmp)
+		}
+	}()
+	n, err := f.Write(data)
+	if err != nil {
+		return "", err
+	}
+	if n != len(data) {
+		return "", io.ErrShortWrite
+	}
+	if err = f.Sync(); err != nil {
+		return "", err
+	}
+	if err = f.Close(); err != nil {
+		return "", err
+	}
+	return tmp, nil
+}
+
+func replaceFileWithRetry(oldPath, newPath string) error {
+	return replaceFileWithRetryFunc(oldPath, newPath, os.Rename, time.Sleep)
+}
+
+func replaceFileWithRetryFunc(oldPath, newPath string, rename func(string, string) error, sleep func(time.Duration)) error {
+	delay := storeReplaceInitialDelay
+	var err error
+	for attempt := 1; attempt <= storeReplaceAttempts; attempt++ {
+		err = rename(oldPath, newPath)
+		if err == nil {
+			return nil
+		}
+		if attempt == storeReplaceAttempts {
+			break
+		}
+		sleep(delay)
+		delay *= 2
+		if delay > storeReplaceMaxDelay {
+			delay = storeReplaceMaxDelay
+		}
+	}
+	return fmt.Errorf("replace %s with %s after %d attempt(s): %w", newPath, oldPath, storeReplaceAttempts, err)
+}
+
+func backupMoviesPath(path string) string {
+	return path + ".bak"
+}
+
+func syncDirBestEffort(path string) {
+	d, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer d.Close()
+	_ = d.Sync()
 }
 
 func movieMatches(m Movie, q string, fields map[string]bool) bool {

@@ -47,10 +47,13 @@
         <label for="sortField">Sort by</label>
         <select id="sortField"></select>
         <button id="sortDirection" type="button" aria-label="Toggle sort direction">A-Z</button>
-        <label id="ignoreLeadingTheLabel" class="sort-checkbox" for="ignoreLeadingThe">
-          <input id="ignoreLeadingThe" type="checkbox">
-          <span>ignore leading &quot;the&quot;</span>
-        </label>
+        <div class="sort-actions">
+          <label id="ignoreLeadingTheLabel" class="sort-checkbox" for="ignoreLeadingThe">
+            <input id="ignoreLeadingThe" type="checkbox">
+            <span>ignore leading &quot;the&quot;</span>
+          </label>
+          <button id="downloadList" type="button">download list</button>
+        </div>
       </div>
       <div id="results" class="results" tabindex="0" aria-label="Movie results"></div>
     </section>

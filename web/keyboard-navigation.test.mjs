@@ -40,6 +40,17 @@ class FakeElement {
     this.id = "";
   }
 
+  click() {
+    this.ownerDocument.clickedElements.push(this);
+    this.dispatchEvent(new FakeEvent("click"));
+  }
+
+  remove() {
+    if (!this.parentElement) return;
+    this.parentElement.children = this.parentElement.children.filter((child) => child !== this);
+    this.parentElement = null;
+  }
+
   appendChild(child) {
     child.parentElement = this;
     this.children.push(child);
@@ -122,6 +133,7 @@ class FakeDocument {
     this.elementsById = new Map();
     this.body = this.createElement("body");
     this.activeElement = null;
+    this.clickedElements = [];
   }
 
   createElement(tagName) {
@@ -212,7 +224,7 @@ const requiredIDs = [
   "sortField", "sortDirection", "empty", "movieForm", "poster", "addForm",
   "titles", "status", "selectAllFields", "clearFields", "deleteButton",
   "totalMovies", "coverArt", "coverStatus", "posterTarget", "deleteCoverArt", "refreshButton",
-  "newButton", "emptyNewButton", "ignoreLeadingThe", "ignoreLeadingTheLabel",
+  "newButton", "emptyNewButton", "ignoreLeadingThe", "ignoreLeadingTheLabel", "downloadList",
 ];
 for (const id of requiredIDs) document.getElementById(id);
 const app = document.createElement("main");
@@ -222,7 +234,30 @@ document.body.appendChild(document.getElementById("results"));
 
 const movies = [
   { id: "n", title: "2001: A Space Odyssey", format: "Blu-ray", genre: [], releaseDate: "1968" },
-  { id: "a", title: "Alpha", format: "DVD", genre: [], releaseDate: "2001" },
+  {
+    id: "a",
+    title: "Alpha",
+    format: "DVD",
+    studio: "Studio, One",
+    directors: ["Director One", "Director Two"],
+    cast: ["Actor One"],
+    producers: ["Producer One"],
+    credits: { Writer: "Writer One" },
+    genre: [],
+    releaseDate: "2001",
+    runtime: "101 min",
+    rating: "PG",
+    myRating: "8",
+    synopsis: "A quoted \"summary\"",
+    sourceUrl: "https://example.com/source",
+    amazonUrl: "https://example.com/amazon",
+    imagePath: "/images/alpha-cover.jpg",
+    location: "Shelf A",
+    notes: "Has, comma",
+    externalIds: { imdb: "tt-alpha" },
+    createdAt: "2020-01-01T00:00:00Z",
+    updatedAt: "2020-01-02T00:00:00Z",
+  },
   { id: "alps", title: "Alps", format: "DVD", genre: [], releaseDate: "2011" },
   { id: "abyss", title: "The Abyss", format: "DVD", genre: [], releaseDate: "1989" },
   { id: "t", title: "The Artist", format: "DVD", genre: [], releaseDate: "2011" },
@@ -233,10 +268,21 @@ const movies = [
 ];
 const requests = [];
 const objectURLs = [];
+const downloadBlobs = [];
 const revokedObjectURLs = [];
+class FakeBlob {
+  constructor(parts, options = {}) {
+    this.parts = parts;
+    this.type = options.type || "";
+  }
+}
 const objectURLAPI = {
   createObjectURL(file) {
-    const url = `blob:${file.name}`;
+    const isNamedFile = file && file.name;
+    const url = isNamedFile ? `blob:${file.name}` : `blob:download-${downloadBlobs.length + 1}`;
+    if (!isNamedFile) {
+      downloadBlobs.push(file);
+    }
     objectURLs.push(url);
     return url;
   },
@@ -336,6 +382,7 @@ const context = {
   Number,
   URL: objectURLAPI,
   URLSearchParams,
+  Blob: FakeBlob,
   FormData: class FormData {
     append() {}
   },
@@ -353,6 +400,19 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 const results = document.getElementById("results");
 const sortedMovieIDs = () => Array.from(context.sortedMovies(), (movie) => movie.id);
 assert.equal(document.getElementById("title").value, "", "detail view starts empty");
+
+document.getElementById("downloadList").dispatchEvent(new FakeEvent("click"));
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(downloadBlobs.length, 1, "download list creates a CSV blob");
+assert.ok(document.clickedElements.at(-1).download.startsWith("moviedb-list-"), "download list names the CSV file");
+const downloadedCSV = downloadBlobs.at(-1).parts.join("");
+const csvLines = downloadedCSV.split(/\r?\n/).filter(Boolean);
+assert.equal(csvLines[0], "ID,Title,Format,Studio,Directors,Cast,Producers,Credits,Genre,Release Date,Runtime,MPA Rating,MyRating,Synopsis,Source URL,Amazon URL,Cover Art,Location,Notes,External IDs,Created,Updated", "download list exports every movie field");
+const alphaCSV = csvLines.find((line) => line.includes(",Alpha,"));
+assert.ok(alphaCSV.includes("alpha-cover.jpg"), "download list exports cover art filename");
+assert.ok(!alphaCSV.includes("/images/alpha-cover.jpg"), "download list omits cover art path");
+assert.ok(alphaCSV.includes("Director One; Director Two"), "download list serializes list fields");
+assert.ok(alphaCSV.includes("imdb: tt-alpha"), "download list serializes non-display map fields");
 
 document.getElementById("titles").value = "Missing Movie\nFound Movie";
 document.getElementById("addForm").dispatchEvent(new FakeEvent("submit", { submitter: document.createElement("button") }));
@@ -391,7 +451,7 @@ document.getElementById("movieForm").dispatchEvent(new FakeEvent("submit"));
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.ok(requests.some((request) => request.path === "/api/movies/draft-cover-id/image" && request.method === "POST"), "staged draft cover uploads after the movie is created");
 assert.equal(document.getElementById("poster").src, "/images/draft-cover.jpg", "saved draft shows the uploaded cover path");
-assert.deepEqual(revokedObjectURLs, ["blob:draft-cover.png"], "temporary draft cover preview URL is revoked after upload");
+assert.ok(revokedObjectURLs.includes("blob:draft-cover.png"), "temporary draft cover preview URL is revoked after upload");
 
 context.openMovie("a", { focusResult: true });
 assert.equal(document.getElementById("title").value, "Alpha", "opening first movie populates detail view");

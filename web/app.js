@@ -67,6 +67,31 @@ const sortFields = [
   ["updatedAt", "Updated"],
 ];
 
+const csvMovieFields = [
+  ["id", "ID"],
+  ["title", "Title"],
+  ["format", "Format"],
+  ["studio", "Studio"],
+  ["directors", "Directors", listCSVValue],
+  ["cast", "Cast", listCSVValue],
+  ["producers", "Producers", listCSVValue],
+  ["credits", "Credits", objectCSVValue],
+  ["genre", "Genre", listCSVValue],
+  ["releaseDate", "Release Date"],
+  ["runtime", "Runtime"],
+  ["rating", "MPA Rating"],
+  ["myRating", "MyRating"],
+  ["synopsis", "Synopsis"],
+  ["sourceUrl", "Source URL"],
+  ["amazonUrl", "Amazon URL"],
+  ["imagePath", "Cover Art", coverArtFileName],
+  ["location", "Location"],
+  ["notes", "Notes"],
+  ["externalIds", "External IDs", objectCSVValue],
+  ["createdAt", "Created"],
+  ["updatedAt", "Updated"],
+];
+
 const fields = {
   title: $("title"),
   format: $("movieFormat"),
@@ -256,6 +281,87 @@ function objectText(value) {
     .map(([key, entry]) => `${key} ${entry}`)
     .sort()
     .join(" ");
+}
+
+function downloadListAsCSV() {
+  const rows = sortedMovies();
+  const csv = moviesToCSV(rows);
+  const filename = `moviedb-list-${dateStamp(new Date())}.csv`;
+  if (downloadTextFile(filename, csv, "text/csv;charset=utf-8")) {
+    setStatus(`Downloaded ${rows.length} movie${rows.length === 1 ? "" : "s"} as CSV.`);
+  }
+}
+
+function moviesToCSV(rows) {
+  const lines = [csvMovieFields.map(([, label]) => csvEscape(label)).join(",")];
+  for (const movie of rows) {
+    lines.push(csvMovieFields.map(([key, , format]) => csvEscape(formatCSVValue(movie, key, format))).join(","));
+  }
+  return `${lines.join("\r\n")}\r\n`;
+}
+
+function formatCSVValue(movie, key, format) {
+  const value = movie ? movie[key] : "";
+  if (format) {
+    return format(value, movie);
+  }
+  return value ?? "";
+}
+
+function listCSVValue(value) {
+  return Array.isArray(value) ? value.join("; ") : value || "";
+}
+
+function objectCSVValue(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "";
+  }
+  return Object.entries(value)
+    .sort(([left], [right]) => left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" }))
+    .map(([key, entry]) => `${key}: ${listCSVValue(Array.isArray(entry) ? entry : String(entry ?? ""))}`)
+    .join("; ");
+}
+
+function coverArtFileName(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const clean = value.trim().replaceAll("\\", "/").split(/[?#]/)[0];
+  return clean.split("/").filter(Boolean).pop() || "";
+}
+
+function csvEscape(value) {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function downloadTextFile(filename, text, type) {
+  const urlAPI = window.URL || (typeof URL !== "undefined" ? URL : null);
+  if (!urlAPI || typeof urlAPI.createObjectURL !== "function" || typeof Blob === "undefined") {
+    setStatus("CSV download is not supported by this browser.");
+    return false;
+  }
+  const blob = new Blob([text], { type });
+  const url = urlAPI.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  if (typeof link.click === "function") {
+    link.click();
+  }
+  if (typeof link.remove === "function") {
+    link.remove();
+  }
+  if (typeof urlAPI.revokeObjectURL === "function") {
+    setTimeout(() => urlAPI.revokeObjectURL(url), 0);
+  }
+  return true;
+}
+
+function dateStamp(date) {
+  return date.toISOString().slice(0, 10);
 }
 
 function compareValues(left, right) {
@@ -609,6 +715,7 @@ $("search").addEventListener("input", () => {
 
 $("selectAllFields").addEventListener("click", () => setAllSearchFields(true));
 $("clearFields").addEventListener("click", () => setAllSearchFields(false));
+$("downloadList").addEventListener("click", downloadListAsCSV);
 $("results").addEventListener("keydown", handleResultKeydown);
 $("sortField").addEventListener("change", () => {
   updateIgnoreLeadingTheAvailability();

@@ -9,7 +9,7 @@ discrete files under `./data/images/`.
 MovieDB exists to provide a simple, local solution for DVD/Blu-ray movie collection management without dependencies on
 external services or the internet. Features:
 
-- Makes it easy to add movies manually or automatically in large batches using online databases (*the one connected feature*)
+- Add movies manually or automatically in large batches using online databases (*the one, optional, connected feature*)
 - Stores all of the information about movies locally with no need for internet access
 - Free and open source (requires no subscriptions)
 - Single, small, fast, 0-run-time-dependency Go binary: download it, run it
@@ -17,13 +17,13 @@ external services or the internet. Features:
 - Uses a single simple json file for all movie data (except cover art images), copy and edit as you like
 - Uses an `images/` directory to house all cover art files in standard viewable graphics formats (jfif, png, jpeg, etc.)
 - Allows you to store location information (which binder, shelf or cabinet the movie is in)
-- Allows you to rate your movies
-- Allows you to add notes to movies
+- Allows you to rate and add notes to your movies
 - Everything is searchable, making it easy to find movies with a given actor or from a specific genre or with a "watch next" note or ...
+- Download any search list or the entire DB as a CSV file
 - Works on desktops, laptops, good on tablets and decent on phones
 - A single moviedb instance can be accessed from multiple machines, tablets and phones over the network if you choose
 
-The app is about 10MB and a 500 movie database is about 1MB of JSON plus 200MB of cover art (and cover art is optional).
+The app is about 10MB and a 500 movie database is about 1MB of JSON plus 200MB of cover art (cover art is optional).
 The repo contains a sample database in the `./data/` directory.
 
 
@@ -80,7 +80,6 @@ To listen on specific interfaces, use as many host switches as you require `--ho
 > N.B. Network access should be configured with security in mind. Moviedb has none (!) At a minimum, backup your data
 > directory.
 
-
 By default, MovieDB looks for the database under `./data/` relative to the run directory. To choose an alternate
 database directory, use `--db-path`. The directory should contain `movies.json`; cover art is expected in an `images/`
 subdirectory inside that same directory. If `movies.json` does not exist in the selected directory, MovieDB creates an
@@ -99,21 +98,20 @@ any) tweaks to run. The app has been tested on Windows with Chrome and Linux wit
 The browser UI has three drag-sizable panes:
 
 - **Add/Search** - automatically add and search for movies
-    - "Add movie titles" - Drop a list of movie titles here then click "Add movies" to bulk add using internet data, a dialog provides deconfliction and merge options when needed
-    - "Search collection" - Enter a title, genre, year, actor, etc. (select from one or multiple fields) to find what you are looking for quickly
+  - "Add movie titles" - Drop a list of movie titles here then click "Add movies" to bulk add using internet data, a dialog provides deconfliction and merge options when needed
+  - "Search collection" - Enter a title, genre, year, actor, etc. (select from one or multiple fields) to find what you are looking for quickly
 - **Results list** - displays the movies matching the current search criteria
-    - "Sorted by" - Chooses the field to sort by
-    - "A-Z"/"Z-A" - Sets the search order increasing or decreasing
-    - "Ignore leading 'the'" - Optionally ignores a leading "the" in titles when sorting (e.g., when checked "The Matrix" would be sorted under "M" instead of "T")
-    - Navigation - up/down with arrow keys or press an alphanumeric key to jump through movies starting with that character
+  - "Sorted by" - Chooses the field to sort by
+  - "A-Z"/"Z-A" - Sets the search order increasing or decreasing
+  - "Ignore leading 'the'" - Optionally ignores a leading "the" in titles when sorting (e.g., when checked "The Matrix" would be sorted under "M" instead of "T")
+  - "download list" - Allows you to download the current list as a CSV file
+  - Navigation - up/down with arrow keys or press an alphanumeric key to jump through movies starting with that character
 - **Movie details** - shows detailed information about the movie currently selected in the Results List
-    - "New" - Allows you to create new movies manually (short cut: `Ins`)
-    - You can always edit any field including cover art which you can drag/drop or copy/paste to update or use the COVER ART CHANGE/DELETE buttons
-    - "Save changes" - Changes are lost when you navigate away from a movie unless you save (short cut: `Ctrl`/`Cmd`+`S`)
-    - "Update from source" - Pulls fresh data from the internet for a movie, if you don't like it, don't save it (short cut: `Ctrl`/`Cmd`+`U`)
-    - "Delete" - To delete a movie altogether  (short cut: `Del`)
-
-
+  - "New" - Allows you to create new movies manually (short cut: `Ins`)
+  - You can always edit any field including cover art which you can drag/drop or copy/paste to update or use the COVER ART CHANGE/DELETE buttons
+  - "Save changes" - Changes are lost when you navigate away from a movie unless you save (short cut: `Ctrl`/`Cmd`+`S`)
+  - "Update from source" - Pulls fresh data from the internet for a movie, if you don't like it, don't save it (short cut: `Ctrl`/`Cmd`+`U`)
+  - "Delete" - To delete a movie altogether  (short cut: `Del`)
 
 ---
 
@@ -166,7 +164,7 @@ export OMDB_API_KEY="your_omdb_api_key"
 ```
 
 
-## Duplicates
+## Duplicates and Data Files
 
 MovieDB does not allow duplicate movies, a movie is unique if the combination of its title and release date are unique.
 On startup the app scans the local database and merges duplicates title/date movies automatically (duplicates should not
@@ -182,3 +180,6 @@ If you have concerns about your database, make a backup of the ./data/movies.jso
 by shutting down the application and then just copying over the old movies.json file with your backup. Also, because
 movies.json is just a json file, you can edit it manually with any decent editor (e.g. notepad++, vscode, vim, etc.).
 If you want to preserve your cover art, you should make a copy of the images directory too.
+
+The moviedb app takes care to maintain the integrity of the database file, and creates a backup of the last known good
+database in the file `.\data\movies.json.bak`.

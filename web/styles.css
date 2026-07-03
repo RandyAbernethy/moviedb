@@ -326,12 +326,25 @@ button:disabled {
   text-shadow: none;
 }
 
-.sort-checkbox {
+.sort-actions {
   display: flex;
   grid-column: 2 / -1;
   align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: -2px;
+}
+
+.sort-actions button {
+  font-size: 12px;
+  min-width: 0;
+  padding: 6px 9px;
+}
+
+.sort-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .sort-checkbox input {

@@ -341,6 +341,11 @@ button:disabled {
   padding: 6px 9px;
 }
 
+.article-options {
+  display: grid;
+  gap: 4px;
+}
+
 .sort-checkbox {
   display: flex;
   align-items: center;

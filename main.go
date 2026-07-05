@@ -223,6 +223,7 @@ func (s *Store) MergeDuplicates() (int, error) {
 		if !found {
 			break
 		}
+		left, right = olderMovieFirst(left, right)
 		mergedMovie := mergeMoviesPreferNewer(left, right)
 		delete(next, left.ID)
 		delete(next, right.ID)
@@ -757,6 +758,13 @@ func mergeMoviesPreferNew(old, new Movie) Movie {
 	out.ExternalIDs = mergeMapPreferNew(old.ExternalIDs, new.ExternalIDs)
 	out.UpdatedAt = time.Now()
 	return out
+}
+
+func olderMovieFirst(a, b Movie) (Movie, Movie) {
+	if b.CreatedAt.Before(a.CreatedAt) {
+		return b, a
+	}
+	return a, b
 }
 
 func mergeMoviesPreferNewer(a, b Movie) Movie {

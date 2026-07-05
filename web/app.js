@@ -6,6 +6,7 @@ let movies = [];
 let current = null;
 let sortAscending = true;
 let ignoreLeadingThe = false;
+let ignoreLeadingA = false;
 let pendingCoverArtFile = null;
 let pendingCoverArtURL = "";
 let columnWidths = defaultColumnWidths();
@@ -184,7 +185,7 @@ function renderSortFields() {
     sort.appendChild(option);
   }
   sort.value = "title";
-  updateIgnoreLeadingTheAvailability();
+  updateLeadingArticleAvailability();
 }
 
 function renderSearchFields() {
@@ -253,8 +254,8 @@ function sortedMovies() {
 
 function sortValue(movie, field) {
   const value = movie[field];
-  if (field === "title" && isIgnoreLeadingTheActive()) {
-    return titleWithoutLeadingThe(value);
+  if (field === "title" && isIgnoreLeadingArticleActive()) {
+    return titleWithoutLeadingArticles(value);
   }
   if (Array.isArray(value)) {
     return value.join(", ");
@@ -265,12 +266,19 @@ function sortValue(movie, field) {
   return value || "";
 }
 
-function titleWithoutLeadingThe(value) {
-  return String(value || "").trim().replace(/^the\s+/i, "");
+function titleWithoutLeadingArticles(value) {
+  let title = String(value || "").trim();
+  if (ignoreLeadingThe) {
+    title = title.replace(/^the\s+/i, "");
+  }
+  if (ignoreLeadingA) {
+    title = title.replace(/^a\s+/i, "");
+  }
+  return title;
 }
 
-function isIgnoreLeadingTheActive() {
-  return ($("sortField").value || "title") === "title" && ignoreLeadingThe;
+function isIgnoreLeadingArticleActive() {
+  return ($("sortField").value || "title") === "title" && (ignoreLeadingThe || ignoreLeadingA);
 }
 
 function objectText(value) {
@@ -453,7 +461,7 @@ function findNextTitlePrefixMatch(ordered, normalizedPrefix, startIndex) {
 }
 
 function titleJumpText(movie) {
-  const title = isIgnoreLeadingTheActive() ? titleWithoutLeadingThe(movie.title) : movie.title;
+  const title = isIgnoreLeadingArticleActive() ? titleWithoutLeadingArticles(movie.title) : movie.title;
   return String(title || "").trim().toLowerCase();
 }
 
@@ -718,7 +726,7 @@ $("clearFields").addEventListener("click", () => setAllSearchFields(false));
 $("downloadList").addEventListener("click", downloadListAsCSV);
 $("results").addEventListener("keydown", handleResultKeydown);
 $("sortField").addEventListener("change", () => {
-  updateIgnoreLeadingTheAvailability();
+  updateLeadingArticleAvailability();
   renderResults();
 });
 $("sortDirection").addEventListener("click", () => {
@@ -730,12 +738,18 @@ $("ignoreLeadingThe").addEventListener("change", () => {
   ignoreLeadingThe = $("ignoreLeadingThe").checked;
   renderResults();
 });
+$("ignoreLeadingA").addEventListener("change", () => {
+  ignoreLeadingA = $("ignoreLeadingA").checked;
+  renderResults();
+});
 document.addEventListener("keydown", handleAppShortcutKeydown);
 
-function updateIgnoreLeadingTheAvailability() {
+function updateLeadingArticleAvailability() {
   const enabled = ($("sortField").value || "title") === "title";
-  $("ignoreLeadingThe").disabled = !enabled;
-  $("ignoreLeadingTheLabel").classList.toggle("disabled", !enabled);
+  for (const [inputID, labelID] of [["ignoreLeadingThe", "ignoreLeadingTheLabel"], ["ignoreLeadingA", "ignoreLeadingALabel"]]) {
+    $(inputID).disabled = !enabled;
+    $(labelID).classList.toggle("disabled", !enabled);
+  }
 }
 
 function handleAppShortcutKeydown(event) {

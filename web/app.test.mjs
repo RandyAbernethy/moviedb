@@ -224,7 +224,8 @@ const requiredIDs = [
   "sortField", "sortDirection", "empty", "movieForm", "poster", "addForm",
   "titles", "status", "selectAllFields", "clearFields", "deleteButton",
   "totalMovies", "coverArt", "coverStatus", "posterTarget", "deleteCoverArt", "refreshButton",
-  "newButton", "emptyNewButton", "ignoreLeadingThe", "ignoreLeadingTheLabel", "downloadList",
+  "newButton", "emptyNewButton", "ignoreLeadingThe", "ignoreLeadingTheLabel",
+  "ignoreLeadingA", "ignoreLeadingALabel", "downloadList",
 ];
 for (const id of requiredIDs) document.getElementById(id);
 const app = document.createElement("main");
@@ -258,6 +259,7 @@ const movies = [
     createdAt: "2020-01-01T00:00:00Z",
     updatedAt: "2020-01-02T00:00:00Z",
   },
+  { id: "bug", title: "A Bug's Life", format: "DVD", genre: [], releaseDate: "1998" },
   { id: "alps", title: "Alps", format: "DVD", genre: [], releaseDate: "2011" },
   { id: "abyss", title: "The Abyss", format: "DVD", genre: [], releaseDate: "1989" },
   { id: "t", title: "The Artist", format: "DVD", genre: [], releaseDate: "2011" },
@@ -542,14 +544,14 @@ assert.equal(document.querySelector(".result.active")?.dataset.movieId, "alps", 
 
 const secondAJump = new FakeEvent("keydown", { key: "a" });
 results.dispatchEvent(secondAJump);
-assert.equal(document.getElementById("title").value, "Alpha", "letter jump wraps to the first matching title");
-assert.equal(document.querySelector(".result.active")?.dataset.movieId, "a", "letter jump wraps active tile");
+assert.equal(document.getElementById("title").value, "A Bug's Life", "letter jump wraps to the first matching title");
+assert.equal(document.querySelector(".result.active")?.dataset.movieId, "bug", "letter jump wraps active tile");
 
 const noMatchJump = new FakeEvent("keydown", { key: "z" });
 results.dispatchEvent(noMatchJump);
 assert.equal(noMatchJump.defaultPrevented, true, "unmatched letter keys are still handled by the results list");
-assert.equal(document.getElementById("title").value, "Alpha", "unmatched letter jump leaves the current movie unchanged");
-assert.equal(document.querySelector(".result.active")?.dataset.movieId, "a", "unmatched letter jump leaves active tile unchanged");
+assert.equal(document.getElementById("title").value, "A Bug's Life", "unmatched letter jump leaves the current movie unchanged");
+assert.equal(document.querySelector(".result.active")?.dataset.movieId, "bug", "unmatched letter jump leaves active tile unchanged");
 
 const letterJump = new FakeEvent("keydown", { key: "c" });
 results.dispatchEvent(letterJump);
@@ -570,7 +572,7 @@ assert.equal(document.getElementById("title").value, "2001: A Space Odyssey", "m
 
 document.getElementById("ignoreLeadingThe").checked = true;
 document.getElementById("ignoreLeadingThe").dispatchEvent(new FakeEvent("change"));
-assert.deepEqual(sortedMovieIDs(), ["n", "abyss", "a", "alps", "t", "b", "c", "matrix", "term"], "title sort can ignore leading The");
+assert.deepEqual(sortedMovieIDs(), ["n", "bug", "abyss", "a", "alps", "t", "b", "c", "matrix", "term"], "title sort can ignore leading The");
 
 const ignoredArticleJump = new FakeEvent("keydown", { key: "t" });
 results.dispatchEvent(ignoredArticleJump);
@@ -579,8 +581,8 @@ assert.equal(document.getElementById("title").value, "Terminator", "letter jump 
 
 const ignoredArticleAJump = new FakeEvent("keydown", { key: "a" });
 results.dispatchEvent(ignoredArticleAJump);
-assert.equal(document.getElementById("title").value, "The Abyss", "letter jump includes leading-The titles under their stripped prefix");
-assert.equal(document.querySelector(".result.active")?.dataset.movieId, "abyss", "letter jump wraps to stripped-prefix title");
+assert.equal(document.getElementById("title").value, "A Bug's Life", "leading-A titles remain under A when only leading The is ignored");
+assert.equal(document.querySelector(".result.active")?.dataset.movieId, "bug", "letter jump wraps to leading-A title");
 
 document.getElementById("ignoreLeadingThe").focus();
 const ignoredArticleGlobalJump = new FakeEvent("keydown", { key: "m" });
@@ -589,16 +591,30 @@ assert.equal(ignoredArticleGlobalJump.defaultPrevented, true, "global letter jum
 assert.equal(document.getElementById("title").value, "The Matrix", "global letter jump respects ignore-leading-the sorting");
 assert.equal(document.querySelector(".result.active")?.dataset.movieId, "matrix", "global letter jump moves active tile to stripped-prefix match");
 
+document.getElementById("ignoreLeadingThe").checked = false;
+document.getElementById("ignoreLeadingThe").dispatchEvent(new FakeEvent("change"));
+document.getElementById("ignoreLeadingA").checked = true;
+document.getElementById("ignoreLeadingA").dispatchEvent(new FakeEvent("change"));
+assert.deepEqual(sortedMovieIDs(), ["n", "a", "alps", "b", "bug", "c", "term", "abyss", "t", "matrix"], "title sort can ignore leading A");
+
+document.getElementById("ignoreLeadingThe").checked = true;
+document.getElementById("ignoreLeadingThe").dispatchEvent(new FakeEvent("change"));
+assert.deepEqual(sortedMovieIDs(), ["n", "abyss", "a", "alps", "t", "b", "bug", "c", "matrix", "term"], "title sort can ignore both leading articles");
+
 document.getElementById("sortField").value = "releaseDate";
 document.getElementById("sortField").dispatchEvent(new FakeEvent("change"));
 assert.equal(document.getElementById("ignoreLeadingThe").disabled, true, "ignore-leading-the is disabled for non-title sorts");
+assert.equal(document.getElementById("ignoreLeadingA").disabled, true, "ignore-leading-a is disabled for non-title sorts");
 assert.equal(document.getElementById("ignoreLeadingThe").checked, true, "ignore-leading-the preference is preserved while disabled");
-assert.deepEqual(sortedMovieIDs(), ["n", "term", "abyss", "matrix", "a", "b", "c", "alps", "t"], "non-title sort ignores the checkbox preference");
+assert.equal(document.getElementById("ignoreLeadingA").checked, true, "ignore-leading-a preference is preserved while disabled");
+assert.deepEqual(sortedMovieIDs(), ["n", "term", "abyss", "bug", "matrix", "a", "b", "c", "alps", "t"], "non-title sort ignores the checkbox preference");
 
 document.getElementById("sortField").value = "title";
 document.getElementById("sortField").dispatchEvent(new FakeEvent("change"));
 assert.equal(document.getElementById("ignoreLeadingThe").disabled, false, "ignore-leading-the is re-enabled for title sorts");
+assert.equal(document.getElementById("ignoreLeadingA").disabled, false, "ignore-leading-a is re-enabled for title sorts");
 assert.equal(document.getElementById("ignoreLeadingThe").checked, true, "ignore-leading-the preference is remembered for title sorts");
-assert.deepEqual(sortedMovieIDs(), ["n", "abyss", "a", "alps", "t", "b", "c", "matrix", "term"], "remembered preference applies when returning to title sort");
+assert.equal(document.getElementById("ignoreLeadingA").checked, true, "ignore-leading-a preference is remembered for title sorts");
+assert.deepEqual(sortedMovieIDs(), ["n", "abyss", "a", "alps", "t", "b", "bug", "c", "matrix", "term"], "remembered preference applies when returning to title sort");
 
-console.log("keyboard navigation regression passed");
+console.log("app regression passed");

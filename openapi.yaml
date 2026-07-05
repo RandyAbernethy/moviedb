@@ -452,6 +452,9 @@ components:
           type: string
         title:
           type: string
+        sortTitle:
+          type: string
+          description: Optional title used for title sorting.
         format:
           type: string
           example: DVD
@@ -493,8 +496,6 @@ components:
         synopsis:
           type: string
         sourceUrl:
-          type: string
-        amazonUrl:
           type: string
         imagePath:
           type: string

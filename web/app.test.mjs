@@ -219,7 +219,7 @@ function findFirstInMap(map, selector) {
 const document = new FakeDocument();
 const requiredIDs = [
   "title", "movieFormat", "studio", "directors", "cast", "producers", "genre",
-  "releaseDate", "runtime", "rating", "myRating", "synopsis", "sourceUrl", "amazonUrl",
+  "releaseDate", "runtime", "rating", "myRating", "synopsis", "sourceUrl", "sortTitle",
   "location", "notes", "search", "fieldList", "resultCount", "results",
   "sortField", "sortDirection", "empty", "movieForm", "poster", "addForm",
   "titles", "status", "selectAllFields", "clearFields", "deleteButton",
@@ -251,7 +251,6 @@ const movies = [
     myRating: "8",
     synopsis: "A quoted \"summary\"",
     sourceUrl: "https://example.com/source",
-    amazonUrl: "https://example.com/amazon",
     imagePath: "/images/alpha-cover.jpg",
     location: "Shelf A",
     notes: "Has, comma",
@@ -402,6 +401,11 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 const results = document.getElementById("results");
 const sortedMovieIDs = () => Array.from(context.sortedMovies(), (movie) => movie.id);
 assert.equal(document.getElementById("title").value, "", "detail view starts empty");
+assert.equal(context.sortValue({ title: "2001: A Space Odyssey", sortTitle: "Two Thousand One A Space Odyssey" }, "title"), "Two Thousand One A Space Odyssey", "title sorts use sortTitle when present");
+assert.equal(context.sortValue({ title: "District 9" }, "sortTitle"), "District 9", "sortTitle sort values fall back to title when sortTitle is missing");
+assert.ok(!Array.from(document.getElementById("sortField").children, (option) => option.value).includes("sortTitle"), "sortTitle is not exposed as a raw sort option");
+assert.ok(context.compareValues("District 9", "3000", "title") > 0, "title comparison does not parse movie titles as dates");
+assert.ok(context.compareValues("District 9", "3000", "releaseDate") < 0, "date fields still compare as dates");
 
 document.getElementById("downloadList").dispatchEvent(new FakeEvent("click"));
 await new Promise((resolve) => setTimeout(resolve, 0));
@@ -409,7 +413,7 @@ assert.equal(downloadBlobs.length, 1, "download list creates a CSV blob");
 assert.ok(document.clickedElements.at(-1).download.startsWith("moviedb-list-"), "download list names the CSV file");
 const downloadedCSV = downloadBlobs.at(-1).parts.join("");
 const csvLines = downloadedCSV.split(/\r?\n/).filter(Boolean);
-assert.equal(csvLines[0], "ID,Title,Format,Studio,Directors,Cast,Producers,Credits,Genre,Release Date,Runtime,MPA Rating,MyRating,Synopsis,Source URL,Amazon URL,Cover Art,Location,Notes,External IDs,Created,Updated", "download list exports every movie field");
+assert.equal(csvLines[0], "ID,Title,Sort Title,Format,Studio,Directors,Cast,Producers,Credits,Genre,Release Date,Runtime,MPA Rating,MyRating,Synopsis,Source URL,Cover Art,Location,Notes,External IDs,Created,Updated", "download list exports every movie field");
 const alphaCSV = csvLines.find((line) => line.includes(",Alpha,"));
 assert.ok(alphaCSV.includes("alpha-cover.jpg"), "download list exports cover art filename");
 assert.ok(!alphaCSV.includes("/images/alpha-cover.jpg"), "download list omits cover art path");

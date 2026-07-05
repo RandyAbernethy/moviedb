@@ -65,7 +65,6 @@ var (
 	yearInParensOrStandaloneRE = regexp.MustCompile(`\(\d{4}\)|\b\d{4}\b`)
 	nonAlnumLowerRE            = regexp.MustCompile(`[^a-z0-9]+`)
 	releaseYearRE              = regexp.MustCompile(`\b(18|19|20|21)\d{2}\b`)
-	asinPathRE                 = regexp.MustCompile(`/(?:dp|gp/product)/([A-Z0-9]{10})`)
 	whitespaceRE               = regexp.MustCompile(`\s+`)
 	parentheticalRE            = regexp.MustCompile(`\([^)]*\)`)
 	nonAlnumTitleRE            = regexp.MustCompile(`[^A-Za-z0-9]+`)
@@ -76,24 +75,24 @@ var (
 type Movie struct {
 	ID          string            `json:"id"`
 	Title       string            `json:"title"`
+	SortTitle   string            `json:"sortTitle,omitempty"`
 	Format      string            `json:"format"`
-	Studio      string            `json:"studio"`
-	Directors   []string          `json:"directors"`
-	Cast        []string          `json:"cast"`
-	Producers   []string          `json:"producers"`
-	Credits     map[string]string `json:"credits"`
-	Genre       []string          `json:"genre"`
-	ReleaseDate string            `json:"releaseDate"`
-	Runtime     string            `json:"runtime"`
-	Rating      string            `json:"rating"`
-	MyRating    string            `json:"myRating"`
-	Synopsis    string            `json:"synopsis"`
-	SourceURL   string            `json:"sourceUrl"`
-	AmazonURL   string            `json:"amazonUrl"`
-	ImagePath   string            `json:"imagePath"`
-	Location    string            `json:"location"`
-	Notes       string            `json:"notes"`
-	ExternalIDs map[string]string `json:"externalIds"`
+	Studio      string            `json:"studio,omitempty"`
+	Directors   []string          `json:"directors,omitempty"`
+	Cast        []string          `json:"cast,omitempty"`
+	Producers   []string          `json:"producers,omitempty"`
+	Credits     map[string]string `json:"credits,omitempty"`
+	Genre       []string          `json:"genre,omitempty"`
+	ReleaseDate string            `json:"releaseDate,omitempty"`
+	Runtime     string            `json:"runtime,omitempty"`
+	Rating      string            `json:"rating,omitempty"`
+	MyRating    string            `json:"myRating,omitempty"`
+	Synopsis    string            `json:"synopsis,omitempty"`
+	SourceURL   string            `json:"sourceUrl,omitempty"`
+	ImagePath   string            `json:"imagePath,omitempty"`
+	Location    string            `json:"location,omitempty"`
+	Notes       string            `json:"notes,omitempty"`
+	ExternalIDs map[string]string `json:"externalIds,omitempty"`
 	CreatedAt   time.Time         `json:"createdAt"`
 	UpdatedAt   time.Time         `json:"updatedAt"`
 }
@@ -567,6 +566,7 @@ func searchFieldSet(fields []string) map[string]bool {
 func searchableFields() []string {
 	return []string{
 		"title",
+		"sortTitle",
 		"format",
 		"studio",
 		"directors",
@@ -580,7 +580,6 @@ func searchableFields() []string {
 		"myRating",
 		"synopsis",
 		"sourceUrl",
-		"amazonUrl",
 		"location",
 		"notes",
 		"externalIds",
@@ -591,6 +590,8 @@ func movieFieldText(m Movie, field string) string {
 	switch field {
 	case "title":
 		return m.Title
+	case "sortTitle":
+		return m.SortTitle
 	case "format":
 		return m.Format
 	case "studio":
@@ -617,8 +618,6 @@ func movieFieldText(m Movie, field string) string {
 		return m.Synopsis
 	case "sourceUrl":
 		return m.SourceURL
-	case "amazonUrl":
-		return m.AmazonURL
 	case "location":
 		return m.Location
 	case "notes":
@@ -640,35 +639,11 @@ func mapText(values map[string]string) string {
 }
 
 func moviesAreDuplicates(a, b Movie) bool {
-	if sharedExternalID(a, b) {
-		return true
-	}
-	if asinA, asinB := amazonIdentity(a), amazonIdentity(b); asinA != "" && asinA == asinB {
-		return true
-	}
 	titleA, titleB := normalizedMovieTitle(a.Title), normalizedMovieTitle(b.Title)
 	if titleA == "" || titleA != titleB {
 		return false
 	}
 	return sameOrMissingReleaseDate(a.ReleaseDate, b.ReleaseDate)
-}
-
-func sharedExternalID(a, b Movie) bool {
-	for _, key := range []string{"tmdb", "imdb", "amazon_asin"} {
-		left := strings.TrimSpace(a.ExternalIDs[key])
-		right := strings.TrimSpace(b.ExternalIDs[key])
-		if left != "" && right != "" && strings.EqualFold(left, right) {
-			return true
-		}
-	}
-	return false
-}
-
-func amazonIdentity(m Movie) string {
-	if asin := strings.TrimSpace(m.ExternalIDs["amazon_asin"]); asin != "" {
-		return strings.ToUpper(asin)
-	}
-	return strings.ToUpper(amazonASIN(m.AmazonURL))
 }
 
 func normalizedMovieTitle(title string) string {
@@ -725,6 +700,7 @@ func normalizeMovieForStorage(m Movie, fallbackFormat string, now time.Time) Mov
 	if strings.TrimSpace(m.Format) == "" {
 		m.Format = defaultString(fallbackFormat, "DVD")
 	}
+	m.SortTitle = strings.TrimSpace(m.SortTitle)
 	if m.Credits == nil {
 		m.Credits = map[string]string{}
 	}
@@ -738,6 +714,7 @@ func normalizeMovieForStorage(m Movie, fallbackFormat string, now time.Time) Mov
 func mergeMoviesPreferNew(old, new Movie) Movie {
 	out := old
 	out.Title = preferString(new.Title, old.Title)
+	out.SortTitle = preferString(new.SortTitle, old.SortTitle)
 	out.Format = preferString(new.Format, old.Format)
 	out.Studio = preferString(new.Studio, old.Studio)
 	out.Directors = preferSlice(new.Directors, old.Directors)
@@ -751,7 +728,6 @@ func mergeMoviesPreferNew(old, new Movie) Movie {
 	out.MyRating = preferString(new.MyRating, old.MyRating)
 	out.Synopsis = preferString(new.Synopsis, old.Synopsis)
 	out.SourceURL = preferString(new.SourceURL, old.SourceURL)
-	out.AmazonURL = preferString(new.AmazonURL, old.AmazonURL)
 	out.ImagePath = preferString(new.ImagePath, old.ImagePath)
 	out.Location = preferString(new.Location, old.Location)
 	out.Notes = preferString(new.Notes, old.Notes)
@@ -779,6 +755,7 @@ func mergeMoviesPreferOld(old, new Movie) Movie {
 	out.ID = old.ID
 	out.CreatedAt = old.CreatedAt
 	out.Title = preferString(old.Title, new.Title)
+	out.SortTitle = preferString(old.SortTitle, new.SortTitle)
 	out.Format = preferString(old.Format, new.Format)
 	out.Studio = preferString(old.Studio, new.Studio)
 	out.Directors = preferSlice(old.Directors, new.Directors)
@@ -792,7 +769,6 @@ func mergeMoviesPreferOld(old, new Movie) Movie {
 	out.MyRating = preferString(old.MyRating, new.MyRating)
 	out.Synopsis = preferString(old.Synopsis, new.Synopsis)
 	out.SourceURL = preferString(old.SourceURL, new.SourceURL)
-	out.AmazonURL = preferString(old.AmazonURL, new.AmazonURL)
 	out.ImagePath = preferString(old.ImagePath, new.ImagePath)
 	out.Location = preferString(old.Location, new.Location)
 	out.Notes = preferString(old.Notes, new.Notes)
@@ -1295,18 +1271,11 @@ func (s *Server) handleMovies(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		added := make([]Movie, 0, len(req.Titles))
-		for _, entry := range normalizeTitles(req.Titles) {
-			title := entry
-			amazonURL := ""
-			if isAmazonURL(entry) {
-				title = entry
-				amazonURL = entry
-			}
+		for _, title := range normalizeTitles(req.Titles) {
 			m := Movie{
 				ID:          newID(),
 				Title:       title,
 				Format:      defaultString(req.Format, "DVD"),
-				AmazonURL:   amazonURL,
 				Credits:     map[string]string{},
 				ExternalIDs: map[string]string{},
 				CreatedAt:   time.Now(),
@@ -1383,6 +1352,7 @@ func prepareMovieInput(m *Movie, fallbackFormat, imageBase string) error {
 	if m.Format == "" {
 		m.Format = defaultString(fallbackFormat, "DVD")
 	}
+	m.SortTitle = strings.TrimSpace(m.SortTitle)
 	if m.Credits == nil {
 		m.Credits = map[string]string{}
 	}
@@ -1598,20 +1568,6 @@ func (s *Server) imagePathUsedByAnotherMovie(movieID, imagePath string) bool {
 // Lookup orchestration
 
 func (s *Server) lookupCandidates(ctx context.Context, title, format string) ([]LookupCandidate, error) {
-	if isAmazonURL(title) {
-		m := newCandidateBase(title, format)
-		m.AmazonURL = title
-		if asin := amazonASIN(title); asin != "" {
-			m.ExternalIDs["amazon_asin"] = asin
-		}
-		return []LookupCandidate{{
-			Movie:       m,
-			MatchType:   "exact",
-			Provider:    "Amazon",
-			Description: "Stored Amazon product URL without scraping",
-		}}, nil
-	}
-
 	var approximate []LookupCandidate
 	var errs []string
 	if tmdbKey, tmdbToken := strings.TrimSpace(os.Getenv("TMDB_API_KEY")), strings.TrimSpace(os.Getenv("TMDB_BEARER_TOKEN")); tmdbKey != "" || tmdbToken != "" {
@@ -1681,14 +1637,6 @@ func candidateDescription(m Movie) string {
 
 func (s *Server) lookupMovie(ctx context.Context, m Movie) (Movie, error) {
 	var errs []string
-	if m.AmazonURL != "" {
-		if m.ExternalIDs == nil {
-			m.ExternalIDs = map[string]string{}
-		}
-		if asin := amazonASIN(m.AmazonURL); asin != "" {
-			m.ExternalIDs["amazon_asin"] = asin
-		}
-	}
 	if tmdbKey, tmdbToken := strings.TrimSpace(os.Getenv("TMDB_API_KEY")), strings.TrimSpace(os.Getenv("TMDB_BEARER_TOKEN")); tmdbKey != "" || tmdbToken != "" {
 		if out, err := s.lookupTMDb(ctx, m, tmdbKey, tmdbToken); err == nil {
 			return out, nil
@@ -1749,7 +1697,7 @@ func preserveLocalMovieFields(old, refreshed Movie) Movie {
 	refreshed.Location = old.Location
 	refreshed.Notes = old.Notes
 	refreshed.MyRating = old.MyRating
-	refreshed.AmazonURL = preferString(old.AmazonURL, refreshed.AmazonURL)
+	refreshed.SortTitle = old.SortTitle
 	if refreshed.ImagePath == "" {
 		refreshed.ImagePath = old.ImagePath
 	}
@@ -2527,22 +2475,6 @@ func splitFields(value string) []string {
 	return fields
 }
 
-func isAmazonURL(value string) bool {
-	u, err := url.Parse(strings.TrimSpace(value))
-	if err != nil || u.Host == "" {
-		return false
-	}
-	host := strings.ToLower(u.Host)
-	return host == "amazon.com" || strings.HasSuffix(host, ".amazon.com")
-}
-
-func amazonASIN(value string) string {
-	if match := asinPathRE.FindStringSubmatch(value); len(match) == 2 {
-		return match[1]
-	}
-	return ""
-}
-
 func widenedTitleQueries(title string) []string {
 	seen := map[string]bool{}
 	add := func(value string, out *[]string) {
@@ -2569,10 +2501,7 @@ func dedupeCandidates(candidates []LookupCandidate) []LookupCandidate {
 	seen := map[string]bool{}
 	out := make([]LookupCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		key := candidateKey(candidate.Movie)
-		if key == "" {
-			key = normalizedMovieTitle(candidate.Movie.Title) + "|" + candidate.Movie.ReleaseDate
-		}
+		key := movieDuplicateKey(candidate.Movie)
 		if key != "" && !seen[key] {
 			seen[key] = true
 			out = append(out, candidate)
@@ -2581,16 +2510,20 @@ func dedupeCandidates(candidates []LookupCandidate) []LookupCandidate {
 	return out
 }
 
-func candidateKey(m Movie) string {
-	for _, key := range []string{"tmdb", "imdb", "amazon_asin"} {
-		if value := strings.TrimSpace(m.ExternalIDs[key]); value != "" {
-			return key + ":" + strings.ToLower(value)
-		}
+func movieDuplicateKey(m Movie) string {
+	title := normalizedMovieTitle(m.Title)
+	if title == "" {
+		return ""
 	}
-	if asin := amazonASIN(m.AmazonURL); asin != "" {
-		return "amazon_asin:" + strings.ToLower(asin)
+	return title + "|" + duplicateReleaseKey(m.ReleaseDate)
+}
+
+func duplicateReleaseKey(value string) string {
+	date := normalizedReleaseDate(value)
+	if year := releaseYear(date); year != "" {
+		return year
 	}
-	return ""
+	return date
 }
 
 func splitCSV(s string) []string {

@@ -18,6 +18,7 @@ const allowedCoverTypes = new Set(["image/jpeg", "image/png", "image/gif", "imag
 function blankMovie() {
   return {
     title: "",
+    sortTitle: "",
     format: defaultMovieFormat,
     studio: "",
     directors: [],
@@ -31,7 +32,6 @@ function blankMovie() {
     myRating: "",
     synopsis: "",
     sourceUrl: "",
-    amazonUrl: "",
     location: "",
     notes: "",
     externalIds: {},
@@ -41,6 +41,7 @@ function blankMovie() {
 
 const searchFields = [
   ["title", "Title"],
+  ["sortTitle", "Sort Title"],
   ["format", "Format"],
   ["studio", "Studio"],
   ["directors", "Director"],
@@ -54,7 +55,6 @@ const searchFields = [
   ["myRating", "MyRating"],
   ["synopsis", "Synopsis"],
   ["sourceUrl", "Source URL"],
-  ["amazonUrl", "Amazon URL"],
   ["location", "Location"],
   ["notes", "Notes"],
   ["externalIds", "External IDs"],
@@ -62,7 +62,7 @@ const searchFields = [
 
 const sortFields = [
   ["id", "ID"],
-  ...searchFields,
+  ...searchFields.filter(([value]) => value !== "sortTitle"),
   ["imagePath", "Image path"],
   ["createdAt", "Created"],
   ["updatedAt", "Updated"],
@@ -71,6 +71,7 @@ const sortFields = [
 const csvMovieFields = [
   ["id", "ID"],
   ["title", "Title"],
+  ["sortTitle", "Sort Title"],
   ["format", "Format"],
   ["studio", "Studio"],
   ["directors", "Directors", listCSVValue],
@@ -84,7 +85,6 @@ const csvMovieFields = [
   ["myRating", "MyRating"],
   ["synopsis", "Synopsis"],
   ["sourceUrl", "Source URL"],
-  ["amazonUrl", "Amazon URL"],
   ["imagePath", "Cover Art", coverArtFileName],
   ["location", "Location"],
   ["notes", "Notes"],
@@ -95,6 +95,7 @@ const csvMovieFields = [
 
 const fields = {
   title: $("title"),
+  sortTitle: $("sortTitle"),
   format: $("movieFormat"),
   studio: $("studio"),
   directors: $("directors"),
@@ -107,13 +108,13 @@ const fields = {
   myRating: $("myRating"),
   synopsis: $("synopsis"),
   sourceUrl: $("sourceUrl"),
-  amazonUrl: $("amazonUrl"),
   location: $("location"),
   notes: $("notes"),
 };
 
 const formBindings = [
   ["title", fields.title, "", textValue, writeText],
+  ["sortTitle", fields.sortTitle, "", textValue, writeText],
   ["format", fields.format, "DVD", rawValue, writeText],
   ["studio", fields.studio, "", textValue, writeText],
   ["directors", fields.directors, [], csv, writeList],
@@ -126,7 +127,6 @@ const formBindings = [
   ["myRating", fields.myRating, "", rawValue, writeText],
   ["synopsis", fields.synopsis, "", textValue, writeText],
   ["sourceUrl", fields.sourceUrl, "", textValue, writeText],
-  ["amazonUrl", fields.amazonUrl, "", textValue, writeText],
   ["location", fields.location, "", textValue, writeText],
   ["notes", fields.notes, "", textValue, writeText],
 ];
@@ -247,15 +247,16 @@ function renderResults() {
 function sortedMovies() {
   const field = $("sortField").value || "title";
   return [...movies].sort((left, right) => {
-    const comparison = compareValues(sortValue(left, field), sortValue(right, field));
+    const comparison = compareValues(sortValue(left, field), sortValue(right, field), field);
     return sortAscending ? comparison : -comparison;
   });
 }
 
 function sortValue(movie, field) {
   const value = movie[field];
-  if (field === "title" && isIgnoreLeadingArticleActive()) {
-    return titleWithoutLeadingArticles(value);
+  if (field === "title" || field === "sortTitle") {
+    const title = titleSortText(movie);
+    return isIgnoreLeadingArticleActive() ? titleWithoutLeadingArticles(title) : title;
   }
   if (Array.isArray(value)) {
     return value.join(", ");
@@ -372,11 +373,13 @@ function dateStamp(date) {
   return date.toISOString().slice(0, 10);
 }
 
-function compareValues(left, right) {
-  const leftDate = Date.parse(left);
-  const rightDate = Date.parse(right);
-  if (!Number.isNaN(leftDate) && !Number.isNaN(rightDate)) {
-    return leftDate - rightDate;
+function compareValues(left, right, field = "") {
+  if (field === "releaseDate" || field === "createdAt" || field === "updatedAt") {
+    const leftDate = Date.parse(left);
+    const rightDate = Date.parse(right);
+    if (!Number.isNaN(leftDate) && !Number.isNaN(rightDate)) {
+      return leftDate - rightDate;
+    }
   }
   return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
 }
@@ -460,9 +463,18 @@ function findNextTitlePrefixMatch(ordered, normalizedPrefix, startIndex) {
   return null;
 }
 
+function titleSortText(movie) {
+  if (!movie) {
+    return "";
+  }
+  const sortTitle = String(movie.sortTitle || "").trim();
+  return sortTitle || movie.title || "";
+}
+
 function titleJumpText(movie) {
-  const title = isIgnoreLeadingArticleActive() ? titleWithoutLeadingArticles(movie.title) : movie.title;
-  return String(title || "").trim().toLowerCase();
+  const title = titleSortText(movie);
+  const normalized = isIgnoreLeadingArticleActive() ? titleWithoutLeadingArticles(title) : title;
+  return String(normalized || "").trim().toLowerCase();
 }
 
 function focusMovieResult(id) {
@@ -932,7 +944,7 @@ function mergeDraftWithSource(draft, source) {
     location: draft.location,
     notes: draft.notes,
     myRating: draft.myRating,
-    amazonUrl: draft.amazonUrl || source.amazonUrl,
+    sortTitle: draft.sortTitle || source.sortTitle,
   };
   return merged;
 }

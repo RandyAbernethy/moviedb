@@ -178,6 +178,58 @@ func TestNewStoreRecoversFromBackupWhenPrimaryIsMissing(t *testing.T) {
 	}
 }
 
+func TestStoreSaveOmitsEmptyFieldsAndLegacyUnknownFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "movies.json")
+	legacy := `[
+  {
+    "id": "legacy",
+    "title": "Legacy Movie",
+    "sortTitle": "  Legacy Sort  ",
+    "format": "DVD",
+    "studio": "",
+    "directors": [],
+    "credits": {},
+    "legacyUnknown": "legacy value",
+    "createdAt": "2020-01-01T00:00:00Z",
+    "updatedAt": "2020-01-02T00:00:00Z"
+  }
+]
+`
+	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	movie, ok := store.Get("legacy")
+	if !ok {
+		t.Fatal("expected legacy movie to load")
+	}
+	movie.Notes = ""
+	if err := store.Save(movie); err != nil {
+		t.Fatal(err)
+	}
+
+	var raw []map[string]any
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	got := raw[0]
+	for _, key := range []string{"legacyUnknown", "studio", "directors", "credits", "notes"} {
+		if _, ok := got[key]; ok {
+			t.Fatalf("expected empty or unknown field %q to be omitted from saved JSON: %s", key, data)
+		}
+	}
+	if got["sortTitle"] != "Legacy Sort" {
+		t.Fatalf("expected trimmed sortTitle to be saved, got %#v in %s", got["sortTitle"], data)
+	}
+}
+
 func TestImageHandlerRejectsDirectoryListing(t *testing.T) {
 	server := &Server{imageDir: t.TempDir(), imageBase: "/images/"}
 	req := httptest.NewRequest(http.MethodGet, "/images/", nil)
@@ -306,6 +358,27 @@ func TestManualMovieDuplicateTitleRequiresDifferentReleaseDate(t *testing.T) {
 	differentRelease := postManualMovie(t, server, Movie{Title: "Hamlet", ReleaseDate: "1948-05-06"})
 	if differentRelease.Code != http.StatusOK {
 		t.Fatalf("expected same title with different release date to save, got %d: %s", differentRelease.Code, differentRelease.Body.String())
+	}
+}
+
+func TestDuplicateDetectionUsesOnlyTitleAndReleaseDate(t *testing.T) {
+	sameExternalLeft := Movie{Title: "Alpha", ReleaseDate: "1999", ExternalIDs: map[string]string{"tmdb": "same", "imdb": "ttsame"}}
+	sameExternalRight := Movie{Title: "Beta", ReleaseDate: "2000", ExternalIDs: map[string]string{"tmdb": "same", "imdb": "ttsame"}}
+	if moviesAreDuplicates(sameExternalLeft, sameExternalRight) {
+		t.Fatal("expected matching external IDs not to make different movies duplicates")
+	}
+
+	sameTitleLeft := Movie{Title: "Alpha", ReleaseDate: "1999", ExternalIDs: map[string]string{"tmdb": "left"}}
+	sameTitleRight := Movie{Title: "Alpha", ReleaseDate: "1999-05-01", ExternalIDs: map[string]string{"tmdb": "right"}}
+	if !moviesAreDuplicates(sameTitleLeft, sameTitleRight) {
+		t.Fatal("expected title and release year to make movies duplicates even with different external IDs")
+	}
+
+	if got := dedupeCandidates([]LookupCandidate{{Movie: sameExternalLeft}, {Movie: sameExternalRight}}); len(got) != 2 {
+		t.Fatalf("expected lookup candidate dedupe to keep different title/release rows with same external IDs, got %d", len(got))
+	}
+	if got := dedupeCandidates([]LookupCandidate{{Movie: sameTitleLeft}, {Movie: sameTitleRight}}); len(got) != 1 {
+		t.Fatalf("expected lookup candidate dedupe to collapse same title/release rows with different external IDs, got %d", len(got))
 	}
 }
 
@@ -600,7 +673,7 @@ func TestPreserveLocalMovieFieldsKeepsUserOwnedData(t *testing.T) {
 		Location:  "Shelf A",
 		Notes:     "My note",
 		MyRating:  "9",
-		AmazonURL: "https://www.amazon.com/dp/ABCDEFGHIJ",
+		SortTitle: "Sort Me",
 		ImagePath: "/images/local-cover.jpg",
 		CreatedAt: time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC),
 	}
@@ -617,7 +690,7 @@ func TestPreserveLocalMovieFieldsKeepsUserOwnedData(t *testing.T) {
 	got := preserveLocalMovieFields(old, refreshed)
 	if got.ID != old.ID || got.Format != old.Format || got.Location != old.Location ||
 		got.Notes != old.Notes || got.MyRating != old.MyRating ||
-		got.AmazonURL != old.AmazonURL || !got.CreatedAt.Equal(old.CreatedAt) {
+		got.SortTitle != old.SortTitle || !got.CreatedAt.Equal(old.CreatedAt) {
 		t.Fatalf("local fields were not preserved: %+v", got)
 	}
 	if got.ImagePath != refreshed.ImagePath {

@@ -2,8 +2,8 @@
 
 A movie collection app for the disconnected.
 
-The program consists of a backend movie database manager and a web based UI. The Go backend exposes an http interface at
-http://127.0.0.1:8765/moviedb/ (configurable) and presents a browser based UI via embedded html/css/js. Movie data is
+The program consists of a backend movie database manager and a web based UI. The Go backend exposes its http interface
+at http://127.0.0.1:8765/moviedb/ (configurable) and presents a browser UI via embedded html/css/js. Movie data is
 stored by the backend in a movies.json file under `./data/` (also configurable) with cover art saved in discrete files
 under `./data/images/`.
 
@@ -11,16 +11,16 @@ MovieDB exists to provide a simple, local solution for DVD/Blu-ray/file movie co
 on external services or the internet. Features:
 
 - Add movies manually
-- Add movies automatically in batches using online databases (*the one connected feature*)
-- Stores all movie information locally
+- Add movies in batches, automatically, using online databases (*the one connected feature*)
+- Stores all movie information locally in a single simple json file, copy and edit as you like
 - Free and open source (requires no payments or subscriptions)
 - Single, small, fast, 0-run-time-dependency Go binary: download one file, run it
 - Minimal dev dependencies: Go the Go standard library and JavaScript (no 3rd party imports or requires)
-- Uses a single simple json file for all movie data, copy and edit as you like
 - Uses an `images/` directory to house all cover art files in standard viewable graphics formats (jfif, png, jpeg, etc.)
 - Allows you to store location information (which binder, shelf, cabinet or directory the movie is in)
 - Allows you to rate and add notes to your movies
 - Everything is searchable, making it easy to find movies with a given actor or genre or with a "watch next" note or ...
+- Sort movies by any field and by title, optionally ignoring leading "the" and/or "a", or using a custom sort title
 - Download the full movie list or search results as a CSV file
 - Works on desktops, laptops, good on tablets and decent on phones
 - A single moviedb instance can be accessed from multiple machines, tablets and phones over the network if you choose
@@ -77,7 +77,7 @@ To listen on specific interfaces, use as many host switches as you require `--ho
 ./moviedb.exe --host 127.0.0.1 --host 192.168.1.25
 ```
 
-> N.B. Network access should be configured with security in mind. Moviedb has none (!) At a minimum, backup your data
+> N.B. Network access should be configured with security in mind. Moviedb has none (!), at a minimum, backup your data
 > directory.
 
 By default, MovieDB looks for the database under `./data/` relative to the run directory. To choose an alternate
@@ -89,8 +89,8 @@ empty database there:
 ./moviedb.exe --db-path "D:\MovieDB\data"
 ```
 
-This is a Go program with a browser based UI so while I have not tested it on Mac, it should need very few (if
-any) tweaks to run. The app has been tested on Windows with Chrome and Linux with Firefox.
+This is a Go program with a browser based UI. While I have not tested it on Mac, it should need very few (if any) tweaks
+to run. The app has been tested on Windows with Chrome and Linux with Firefox.
 
 
 ## Use
@@ -104,9 +104,11 @@ The browser UI has three drag-sizable panes:
   - "Sorted by" - Chooses the field to sort by
   - "A-Z"/"Z-A" - Sets the search order increasing or decreasing
   - "Ignore leading 'the'" - Optionally ignores a leading "the" in titles when sorting (e.g., when checked "The Matrix" would be sorted under "M" instead of "T")
+  - "Ignore leading 'a'" - Optionally ignores a leading "a" in titles when sorting (e.g., when checked "A Beautiful Mind" would be sorted under "B" instead of "A")
   - "download list" - Allows you to download the current list as a CSV file
-  - Navigation - up/down with arrow keys or press an alphanumeric key to jump through movies starting with that character
+  - Navigation - move up/down the list with arrow keys or press an alphanumeric key to jump through movies starting with that character
 - **Movie details** - shows detailed information about the movie currently selected in the Results List
+  - "Sort Title" - If you populate the `Sort Title` field for a movie it will be sorted by this field rather than the Title during title sort
   - "New" - Allows you to create new movies manually (short cut: `Ins`)
   - You can always edit any field including cover art which you can drag/drop or copy/paste to update or use the COVER ART CHANGE/DELETE buttons
   - "Save changes" - Changes are lost when you navigate away from a movie unless you save (short cut: `Ctrl`/`Cmd`+`S`)
@@ -125,7 +127,7 @@ The browser UI has three drag-sizable panes:
 MovieDB pulls movie cover art and data from the internet into your local database when you use the "Add movie titles"
 box in the Add/Search pane. However, most internet sites actively repel automated scraping attempts, so to allow MovieDB
 to pull down movie information reliably, you should create an account at one of the online movie database sites and then
-and then generate an API key for MovieDB to use.
+generate an API key for MovieDB to use.
 
 "The Movie Database" (TMDB) is a popular, user editable database for movies and TV shows and perhaps the best option for
 MovieDB. You can create an account for free and then generate an API Key for MovieDB to use. MovieDB can then enrich
@@ -168,7 +170,7 @@ export OMDB_API_KEY="your_omdb_api_key"
 
 MovieDB does not allow duplicate movies, a movie is unique if the combination of its title and release date are unique.
 On startup the app scans the local database and merges duplicates title/date movies automatically (duplicates should not
-occur during normal operations but if they do this startup check will repair your DB so that you can continue to use the
+occur during normal operations, but if they do, this startup check will repair your DB so that you can continue to use the
 app). During add operations, duplicate movies produce a dialog that lets you:
 
 - Cancel - aborts the add with no data changed
@@ -188,20 +190,21 @@ database in the file `.\data\movies.json.bak`.
 ## AI
 
 You can use AI (in particular Claude Code, Open AI Codex or OpenClaw) with MovieDB. Simply drop a copy (do use a copy)
-of your movies.json in a project directory for the AI harness and go to town. You can ask the AI harness to fill in
+of your movies.json into a project directory for the AI harness and go to town. You can ask the AI harness to fill in
 missing movie data or suggest information for your collection. You can tell it what you're in the mood for and ask it to
-suggest a movie from your collection.
+suggest a movie from your collection. Anything really.
 
 Here's an example:
 
 ```text
-ME: Take a look at my movie database file movies.json and make a recommendation for a gripping sci fi triller that I can watch tonight.
+ME: Take a look at my movie database file movies.json and make a recommendation for a gripping scifi triller that I can watch tonight.
 
-Worked for 59s
+> Worked for 59s
 
 CODEX:
 My pick from [movies.json](/mnt/c/Users/randy/Documents/codex-movies/movies.json): Aliens.
-It fits the ask best: sci-fi + thriller, genuinely gripping, and you rated it 9/10. Runtime is 137 min, format DVD, location SciFi/Horror A-D. It’s the strongest “watch tonight” choice if you want tension, momentum, and a great payoff.
+It fits the ask best: sci-fi + thriller, genuinely gripping, and you rated it 9/10. Runtime is 137 min, format DVD, location 
+SciFi/Horror A-D. It’s the strongest “watch tonight” choice if you want tension, momentum, and a great payoff.
 
 Runner-up: Blade Runner, which you rated 10/10, but that’s more brooding noir than pulse-pounder.
 ```

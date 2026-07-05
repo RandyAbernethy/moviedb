@@ -1,25 +1,27 @@
 # MovieDB
 
-A movie collection database application written in Go.
+A movie collection app for the disconnected.
 
-The executable runs a local web server (e.g. http://127.0.0.1:8765/moviedb/) and presents a browser based UI via
-embedded html/css/js. Movie data is stored locally in a movies.json file under `./data/` with cover art saved in
-discrete files under `./data/images/`.
+The program consists of a backend movie database manager and a web based UI. The Go backend exposes an http interface at
+http://127.0.0.1:8765/moviedb/ (configurable) and presents a browser based UI via embedded html/css/js. Movie data is
+stored by the backend in a movies.json file under `./data/` (also configurable) with cover art saved in discrete files
+under `./data/images/`.
 
-MovieDB exists to provide a simple, local solution for DVD/Blu-ray movie collection management without dependencies on
-external services or the internet. Features:
+MovieDB exists to provide a simple, local solution for DVD/Blu-ray/file movie collection management without dependencies
+on external services or the internet. Features:
 
-- Add movies manually or automatically in large batches using online databases (*the one, optional, connected feature*)
-- Stores all of the information about movies locally with no need for internet access
-- Free and open source (requires no subscriptions)
-- Single, small, fast, 0-run-time-dependency Go binary: download it, run it
-- Minimal dev dependencies, generic Go and Javascript and the Go standard library (no other imports/requires)
-- Uses a single simple json file for all movie data (except cover art images), copy and edit as you like
+- Add movies manually
+- Add movies automatically in batches using online databases (*the one connected feature*)
+- Stores all movie information locally
+- Free and open source (requires no payments or subscriptions)
+- Single, small, fast, 0-run-time-dependency Go binary: download one file, run it
+- Minimal dev dependencies: Go the Go standard library and JavaScript (no 3rd party imports or requires)
+- Uses a single simple json file for all movie data, copy and edit as you like
 - Uses an `images/` directory to house all cover art files in standard viewable graphics formats (jfif, png, jpeg, etc.)
-- Allows you to store location information (which binder, shelf or cabinet the movie is in)
+- Allows you to store location information (which binder, shelf, cabinet or directory the movie is in)
 - Allows you to rate and add notes to your movies
-- Everything is searchable, making it easy to find movies with a given actor or from a specific genre or with a "watch next" note or ...
-- Download any search list or the entire DB as a CSV file
+- Everything is searchable, making it easy to find movies with a given actor or genre or with a "watch next" note or ...
+- Download the full movie list or search results as a CSV file
 - Works on desktops, laptops, good on tablets and decent on phones
 - A single moviedb instance can be accessed from multiple machines, tablets and phones over the network if you choose
 
@@ -35,13 +37,11 @@ To build a Windows executable:
 go build -o moviedb.exe .
 ```
 
-To run the executable, just run it!
+To run the executable, just run it! (the app should open in your default browser)
 
 ```powershell
 ./moviedb.exe
 ```
-
-The app should open in your default browser.
 
 To build a Linux or Mac executable:
 
@@ -183,3 +183,54 @@ If you want to preserve your cover art, you should make a copy of the images dir
 
 The moviedb app takes care to maintain the integrity of the database file, and creates a backup of the last known good
 database in the file `.\data\movies.json.bak`.
+
+
+## AI
+
+You can use AI (in particular Claude Code, Open AI Codex or OpenClaw) with MovieDB. Simply drop a copy (do use a copy)
+of your movies.json in a project directory for the AI harness and go to town. You can ask the AI harness to fill in
+missing movie data or suggest information for your collection. You can tell it what you're in the mood for and ask it to
+suggest a movie from your collection.
+
+Here's an example:
+
+```text
+ME: Take a look at my movie database file movies.json and make a recommendation for a gripping sci fi triller that I can watch tonight.
+
+Worked for 59s
+
+CODEX:
+My pick from [movies.json](/mnt/c/Users/randy/Documents/codex-movies/movies.json): Aliens.
+It fits the ask best: sci-fi + thriller, genuinely gripping, and you rated it 9/10. Runtime is 137 min, format DVD, location SciFi/Horror A-D. It’s the strongest “watch tonight” choice if you want tension, momentum, and a great payoff.
+
+Runner-up: Blade Runner, which you rated 10/10, but that’s more brooding noir than pulse-pounder.
+```
+
+... and another:
+
+```text
+ME: If a film does not have a myrating value I have not seen it. What are the best ideas for films with Harrison Ford that I have not seen?
+
+Worked for 21s
+
+CODEX:
+I found 13 Harrison Ford films in [movies.json](/mnt/c/Users/randy/Documents/codex-movies/movies.json) with blank myRating, so by your rule 
+these are unwatched. My best ideas:
+
+- Raiders of the Lost Ark — 115 min, Adventure/Action, Fantasy/Adventure I-R
+  The obvious crown jewel. If this is truly unwatched, this is the one.
+
+- Indiana Jones and the Last Crusade — 127 min, Adventure/Action, Fantasy/Adventure I-R
+  Great Ford, great Connery, lighter and more charming than most action sequels.
+
+- What Lies Beneath — 130 min, Drama/Horror/Mystery/Thriller, SciFi/Horror T-Z
+  Best pick if you want suspense tonight. Ford playing against his usual heroic register gives it extra bite.
+
+- American Graffiti — 112 min, Comedy/Drama, Drama A-G
+  Early Harrison Ford, breezy, culturally important, and very different from his later icon roles.
+
+- K-19: The Widowmaker — 138 min, Drama/History/Thriller/War, War
+  Tense submarine-disaster drama. Heavier watch, but a solid Ford-as-commander choice.
+
+For pure “best movie you haven’t rated yet,” I’d start with Raiders of the Lost Ark. For a darker tonight-watch, pick What Lies Beneath.
+```

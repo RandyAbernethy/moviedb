@@ -15,7 +15,7 @@ on external services or the internet. Features:
 - Stores all movie information locally in a single simple json file, copy and edit as you like
 - Free and open source (requires no payments or subscriptions)
 - Single, small, fast, 0-run-time-dependency Go binary: download one file, run it
-- Minimal dev dependencies: Go the Go standard library and JavaScript (no 3rd party imports or requires)
+- Minimal dev dependencies: Go, the Go standard library and JavaScript (no 3rd party imports or requires)
 - Uses an `images/` directory to house all cover art files in standard viewable graphics formats (jfif, png, jpeg, etc.)
 - Allows you to store location information (which binder, shelf, cabinet or directory the movie is in)
 - Allows you to rate and add notes to your movies

@@ -23,5 +23,8 @@ go.work.sum
 # data/   # Leaving this in with the first 97 best pictures as a demo database
 *.bak
 
+# Distribution builds
+dist/
+
 # env file
 .env

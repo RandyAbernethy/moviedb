@@ -778,10 +778,11 @@ func mergeMoviesPreferOld(old, new Movie) Movie {
 }
 
 type Server struct {
-	store     *Store
-	client    *http.Client
-	imageDir  string
-	imageBase string
+	store         *Store
+	client        *http.Client
+	imageDir      string
+	imageCacheDir string
+	imageBase     string
 }
 
 // Application startup
@@ -813,12 +814,16 @@ func main() {
 	}
 	fmt.Printf("MovieDB database: %s (%d movie(s))\n", filepath.Join(dataDir, "movies.json"), store.Count())
 	s := &Server{
-		store:     store,
-		client:    newOutboundClient(20 * time.Second),
-		imageDir:  filepath.Join(dataDir, "images"),
-		imageBase: "/images/",
+		store:         store,
+		client:        newOutboundClient(20 * time.Second),
+		imageDir:      filepath.Join(dataDir, "images"),
+		imageCacheDir: filepath.Join(dataDir, "images", ".cache"),
+		imageBase:     "/images/",
 	}
-	if err := os.MkdirAll(s.imageDir, 0o755); err != nil {
+	if err := s.ensureImageDirs(); err != nil {
+		log.Fatal(err)
+	}
+	if err := s.clearImageCache(); err != nil {
 		log.Fatal(err)
 	}
 
@@ -1254,6 +1259,10 @@ func (s *Server) handleMovies(w http.ResponseWriter, r *http.Request) {
 			if m.ID == "" {
 				m.ID = newID()
 			}
+			if err := s.promoteCachedMovieImage(&m); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			saved, duplicate, err := s.store.AddResolvingDuplicate(m, duplicatePolicy(req.DuplicatePolicy))
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1265,6 +1274,10 @@ func (s *Server) handleMovies(w http.ResponseWriter, r *http.Request) {
 					"candidate": m,
 					"existing":  duplicate,
 				})
+				return
+			}
+			if err := s.cleanupImageFiles(); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 			writeJSON(w, []Movie{saved})
@@ -1286,6 +1299,10 @@ func (s *Server) handleMovies(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				enriched.Notes = strings.TrimSpace(enriched.Notes + "\nLookup note: " + err.Error())
 			}
+			if err := s.promoteCachedMovieImage(&enriched); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			saved, duplicate, err := s.store.AddResolvingDuplicate(enriched, duplicatePolicy(req.DuplicatePolicy))
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1297,6 +1314,10 @@ func (s *Server) handleMovies(w http.ResponseWriter, r *http.Request) {
 					"candidate": enriched,
 					"existing":  duplicate,
 				})
+				return
+			}
+			if err := s.cleanupImageFiles(); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 			added = append(added, saved)
@@ -1439,19 +1460,25 @@ func (s *Server) handleMovie(w http.ResponseWriter, r *http.Request) {
 		if hadOld {
 			m.CreatedAt = old.CreatedAt
 		}
+		if err := s.promoteCachedMovieImage(&m); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		if err := s.store.Save(m); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if hadOld && old.ImagePath != "" && m.ImagePath != "" && old.ImagePath != m.ImagePath && !s.imagePathUsedByAnotherMovie(id, old.ImagePath) {
-			if err := s.deleteMovieImageFile(old.ImagePath); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
+		if err := s.cleanupImageFiles(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 		writeJSON(w, m)
 	case http.MethodDelete:
 		if err := s.store.Delete(id); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := s.cleanupImageFiles(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -1515,7 +1542,15 @@ func (s *Server) handleMovieImageUpload(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	m.ImagePath = imagePath
+	if err := s.promoteCachedMovieImage(&m); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	if err := s.store.Save(m); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.cleanupImageFiles(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1528,17 +1563,14 @@ func (s *Server) handleMovieImageDelete(w http.ResponseWriter, r *http.Request, 
 		http.NotFound(w, r)
 		return
 	}
-	oldPath := m.ImagePath
 	m.ImagePath = ""
 	if err := s.store.Save(m); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if oldPath != "" && !s.imagePathUsedByAnotherMovie(id, oldPath) {
-		if err := s.deleteMovieImageFile(oldPath); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	if err := s.cleanupImageFiles(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	writeJSON(w, m)
 }
@@ -1554,15 +1586,6 @@ func (s *Server) handleImageFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.ServeFile(w, r, filepath.Join(s.imageDir, name))
-}
-
-func (s *Server) imagePathUsedByAnotherMovie(movieID, imagePath string) bool {
-	for _, movie := range s.store.All("", nil) {
-		if movie.ID != movieID && movie.ImagePath == imagePath {
-			return true
-		}
-	}
-	return false
 }
 
 // Lookup orchestration
@@ -2170,8 +2193,7 @@ func (s *Server) cacheImage(ctx context.Context, m *Movie, imageURL string) erro
 		return err
 	}
 	name := safeFilePart(m.ID) + ext
-	path := filepath.Join(s.imageDir, name)
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := s.writeCachedImage(name, data); err != nil {
 		return err
 	}
 	m.ImagePath = s.imageBase + name
@@ -2184,11 +2206,163 @@ func (s *Server) saveUploadedImage(m *Movie, file io.Reader, _ string) (string, 
 		return "", err
 	}
 	name := safeFilePart(m.ID) + "-cover-" + time.Now().Format("20060102150405") + ext
-	path := filepath.Join(s.imageDir, name)
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := s.writeCachedImage(name, data); err != nil {
 		return "", err
 	}
 	return s.imageBase + name, nil
+}
+
+func (s *Server) writeCachedImage(name string, data []byte) error {
+	if !safeImageFileName(name) {
+		return fmt.Errorf("unsafe image filename %q", name)
+	}
+	if err := s.ensureImageDirs(); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(s.cacheDir(), name), data, 0o644)
+}
+
+func (s *Server) ensureImageDirs() error {
+	if err := os.MkdirAll(s.imageDir, 0o755); err != nil {
+		return err
+	}
+	return os.MkdirAll(s.cacheDir(), 0o755)
+}
+
+func (s *Server) cacheDir() string {
+	if strings.TrimSpace(s.imageCacheDir) != "" {
+		return s.imageCacheDir
+	}
+	return filepath.Join(s.imageDir, ".cache")
+}
+
+func (s *Server) promoteCachedMovieImage(m *Movie) error {
+	if m == nil {
+		return nil
+	}
+	name, ok, err := s.imageFileName(m.ImagePath)
+	if err != nil || !ok {
+		return err
+	}
+	if err := s.promoteCachedImageFile(name); err != nil {
+		return err
+	}
+	if _, err := os.Stat(filepath.Join(s.imageDir, name)); errors.Is(err, os.ErrNotExist) {
+		m.ImagePath = ""
+		return nil
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Server) promoteCachedImageFile(name string) error {
+	if !safeImageFileName(name) {
+		return fmt.Errorf("unsafe image filename %q", name)
+	}
+	if err := s.ensureImageDirs(); err != nil {
+		return err
+	}
+	source := filepath.Join(s.cacheDir(), name)
+	target := filepath.Join(s.imageDir, name)
+	if _, err := os.Stat(source); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	tmp := filepath.Join(s.imageDir, "."+name+".promote-"+time.Now().Format("20060102150405.000000000"))
+	if err := os.Rename(source, tmp); err != nil {
+		return err
+	}
+	backup := ""
+	if _, err := os.Stat(target); err == nil {
+		backup = target + ".bak-" + time.Now().Format("20060102150405.000000000")
+		if err := os.Rename(target, backup); err != nil {
+			_ = os.Rename(tmp, source)
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		_ = os.Rename(tmp, source)
+		return err
+	}
+	if err := os.Rename(tmp, target); err != nil {
+		if backup != "" {
+			_ = os.Rename(backup, target)
+		}
+		_ = os.Rename(tmp, source)
+		return err
+	}
+	if backup != "" {
+		_ = os.Remove(backup)
+	}
+	return nil
+}
+
+func (s *Server) cleanupImageFiles() error {
+	if err := s.deleteOrphanedMovieImages(); err != nil {
+		return err
+	}
+	return s.clearImageCache()
+}
+
+func (s *Server) deleteOrphanedMovieImages() error {
+	if err := os.MkdirAll(s.imageDir, 0o755); err != nil {
+		return err
+	}
+	referenced := map[string]bool{}
+	for _, movie := range s.store.All("", nil) {
+		name, ok, err := s.imageFileName(movie.ImagePath)
+		if err != nil {
+			return err
+		}
+		if ok {
+			referenced[name] = true
+		}
+	}
+	entries, err := os.ReadDir(s.imageDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || referenced[entry.Name()] || !safeImageFileName(entry.Name()) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(s.imageDir, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Server) clearImageCache() error {
+	if err := os.MkdirAll(s.cacheDir(), 0o755); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(s.cacheDir())
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if err := os.Remove(filepath.Join(s.cacheDir(), entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Server) imageFileName(imagePath string) (string, bool, error) {
+	imagePath = strings.TrimSpace(imagePath)
+	if imagePath == "" || !strings.HasPrefix(imagePath, s.imageBase) {
+		return "", false, nil
+	}
+	name := strings.TrimPrefix(imagePath, s.imageBase)
+	if !safeImageFileName(name) {
+		return "", false, fmt.Errorf("unsafe image path %q", imagePath)
+	}
+	return name, true, nil
 }
 
 func readValidatedImage(r io.Reader) ([]byte, string, error) {

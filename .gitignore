@@ -19,8 +19,9 @@ go.work
 go.work.sum
 .gocache/
 
-# Application data directory
-# data/
+# Application data directory (do not save backups)
+# data/   # Leaving this in with the first 97 best pictures as a demo database
+*.bak
 
 # env file
 .env

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -263,6 +264,13 @@ func TestSaveUploadedImageAcceptsJPEG(t *testing.T) {
 	if !strings.HasPrefix(path, "/images/movie-id-cover-") || !strings.HasSuffix(path, ".jpg") {
 		t.Fatalf("expected normalized local JPEG path, got %q", path)
 	}
+	name := strings.TrimPrefix(path, server.imageBase)
+	if _, err := os.Stat(filepath.Join(server.cacheDir(), name)); err != nil {
+		t.Fatalf("expected uploaded image to be staged in cache: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(server.imageDir, name)); !os.IsNotExist(err) {
+		t.Fatalf("expected uploaded image not to be committed yet, stat error was %v", err)
+	}
 }
 
 func TestSaveMovieWithNewImageDeletesOldImage(t *testing.T) {
@@ -280,6 +288,12 @@ func TestSaveMovieWithNewImageDeletesOldImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := &Server{store: store, imageDir: imageDir, imageBase: "/images/"}
+	if err := server.ensureImageDirs(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(server.cacheDir(), "new-cover.jpg"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	old := Movie{ID: "movie-id", Title: "Movie", ImagePath: "/images/old-cover.jpg"}
 	if err := store.Save(old); err != nil {
 		t.Fatal(err)
@@ -304,6 +318,128 @@ func TestSaveMovieWithNewImageDeletesOldImage(t *testing.T) {
 	got, ok := store.Get("movie-id")
 	if !ok || got.ImagePath != updated.ImagePath {
 		t.Fatalf("expected saved movie to use new image path, got %+v", got)
+	}
+}
+
+func TestSaveMoviePromotesCachedImageAndCleansOrphans(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(filepath.Join(dir, "movies.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageDir := filepath.Join(dir, "images")
+	server := &Server{store: store, imageDir: imageDir, imageBase: "/images/"}
+	if err := server.ensureImageDirs(); err != nil {
+		t.Fatal(err)
+	}
+	oldImage := filepath.Join(imageDir, "old-cover.jpg")
+	if err := os.WriteFile(oldImage, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(server.cacheDir(), "new-cover.jpg"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(server.cacheDir(), "unused-cover.jpg"), []byte("unused"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := Movie{ID: "movie-id", Title: "Movie", ImagePath: "/images/old-cover.jpg"}
+	if err := store.Save(old); err != nil {
+		t.Fatal(err)
+	}
+	updated := old
+	updated.ImagePath = "/images/new-cover.jpg"
+	body, err := json.Marshal(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/movies/movie-id", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	server.handleMovie(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected save to succeed, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got, err := os.ReadFile(filepath.Join(imageDir, "new-cover.jpg")); err != nil || string(got) != "new" {
+		t.Fatalf("expected cached image to be promoted, got %q, %v", got, err)
+	}
+	for _, path := range []string{oldImage, filepath.Join(server.cacheDir(), "new-cover.jpg"), filepath.Join(server.cacheDir(), "unused-cover.jpg")} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("expected %s to be removed, stat error was %v", path, err)
+		}
+	}
+}
+
+func TestDeleteMovieCleansCommittedImage(t *testing.T) {
+	server := newTestServer(t)
+	imagePath := filepath.Join(server.imageDir, "cover.jpg")
+	if err := os.WriteFile(imagePath, []byte("image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.store.Save(Movie{ID: "movie-id", Title: "Movie", ImagePath: "/images/cover.jpg"}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/movies/movie-id", nil)
+	rec := httptest.NewRecorder()
+	server.handleMovie(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected delete to succeed, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(imagePath); !os.IsNotExist(err) {
+		t.Fatalf("expected committed image to be deleted with movie, stat error was %v", err)
+	}
+}
+
+func TestMovieImageUploadPromotesAndCleansOldCover(t *testing.T) {
+	server := newTestServer(t)
+	oldImage := filepath.Join(server.imageDir, "old-cover.jpg")
+	if err := os.WriteFile(oldImage, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.store.Save(Movie{ID: "movie-id", Title: "Movie", ImagePath: "/images/old-cover.jpg"}); err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("cover", "cover.jpg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jpeg := []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00}
+	if _, err := part.Write(jpeg); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/movies/movie-id/image", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	server.handleMovieImageUpload(rec, req, "movie-id")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected upload to succeed, got %d: %s", rec.Code, rec.Body.String())
+	}
+	got, ok := server.store.Get("movie-id")
+	if !ok || got.ImagePath == "" || got.ImagePath == "/images/old-cover.jpg" {
+		t.Fatalf("expected movie to reference promoted new cover, got %+v", got)
+	}
+	name := strings.TrimPrefix(got.ImagePath, server.imageBase)
+	if _, err := os.Stat(filepath.Join(server.imageDir, name)); err != nil {
+		t.Fatalf("expected uploaded cover to be promoted: %v", err)
+	}
+	if _, err := os.Stat(oldImage); !os.IsNotExist(err) {
+		t.Fatalf("expected old cover to be deleted, stat error was %v", err)
+	}
+	entries, err := os.ReadDir(server.cacheDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected cache directory to be empty, got %d entries", len(entries))
 	}
 }
 

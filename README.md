@@ -7,47 +7,60 @@ at http://127.0.0.1:8765/moviedb/ (configurable) and presents a browser UI via e
 stored by the backend in a movies.json file under `./data/` (also configurable) with cover art saved in discrete files
 under `./data/images/`.
 
-MovieDB exists to provide a simple, local solution for DVD/Blu-ray/file movie collection management without dependencies
-on external services or the internet. Features:
+MovieDB exists to provide a simple, local solution for DVD/Blu-ray movie collection management without dependencies on
+external services or the internet. Plan on sailing around the world with 300 DVDs and an XBox? This is your app.
+Features:
 
 - Add movies manually
 - Add movies in batches, automatically, using online databases (*the one connected feature*)
 - Stores all movie information locally in a single simple json file, copy and edit as you like
 - Free and open source (requires no payments or subscriptions)
 - Single, small, fast, 0-run-time-dependency Go binary: download one file, run it
-- Minimal dev dependencies: Go, the Go standard library and JavaScript (no 3rd party imports or requires)
+- Minimal dev time dependencies: Go, the Go standard library and JavaScript (no 3rd party imports or requires)
 - Uses an `images/` directory to house all cover art files in standard viewable graphics formats (jfif, png, jpeg, etc.)
-- Allows you to store location information (which binder, shelf, cabinet or directory the movie is in)
+- Allows you to store location information (which binder, shelf or locker the movie is in)
 - Allows you to rate and add notes to your movies
-- Everything is searchable, making it easy to find movies with a given actor or genre or with a "watch next" note or ...
-- Sort movies by any field and by title, optionally ignoring leading "the" and/or "a", or using a custom sort title
-- Download the full movie list or search results as a CSV file
+- Everything is searchable, making it easy to find movies with a given actor, genre, "watch next" note or ...
+- Sort movies by any field, optionally ignoring leading "the" and/or "a" in titles
+- Download your full movie list or search results subset as a CSV file
 - Works on desktops, laptops, good on tablets and decent on phones
-- A single moviedb instance can be accessed from multiple machines, tablets and phones over the network if you choose
+- A single moviedb instance can be accessed from multiple machines, tablets and phones over a network if you choose
 
-The app is about 10MB and a 500 movie database is about 1MB of JSON plus 200MB of cover art (cover art is optional).
-The repo contains a sample database in the `./data/` directory.
+The app is about 10MB and a 500 movie database is about 1MB of JSON plus 50MB of cover art (depending on the size of the
+cover art, which is optional). The repo contains a sample database in the `./data/` directory.
 
 
 ## Build/Run
 
-To build a Windows executable:
+If you just want to run the app without installing Go and building it you can download a prebuilt executable for
+Windows, Mac or Linux from the github releases page: https://github.com/randyabernethy/moviedb/releases
+
+To build a Windows executable on windows:
 
 ```powershell
-go build -o moviedb.exe .
+go build -o dist/moviedb-windows-amd64.exe .
 ```
 
 To run the executable, just run it! (the app should open in your default browser)
 
 ```powershell
+cp ./dist/moviedb-windows-amd64.exe ./moviedb.exe
 ./moviedb.exe
 ```
 
-To build a Linux or Mac executable:
+To build a Linux executable on Linux:
 
 ```bash
-go build -o moviedb .
+go build -o dist/moviedb-linux-amd64 .
 ```
+
+To build a Mac executable on Windows:
+
+```powershell
+$env:CGO_ENABLED="0"; $env:GOOS="darwin"; $env:GOARCH="arm64"; go build -o dist/moviedb-darwin-arm64 .
+```
+
+... you get the idea.
 
 The app supports a few command line switches:
 
@@ -65,7 +78,8 @@ Usage of C:\moviedb\moviedb.exe:
 PS C:\moviedb> 
 ```
 
-By default, MovieDB listens on localhost port `8765`. You can ask the app to listen on all IPv4 interfaces and/or a different port:
+By default, MovieDB listens on localhost port `8765`. You can ask the app to listen on all IPv4 interfaces and/or a
+different port:
 
 ```powershell
 ./moviedb.exe --host 0.0.0.0 --port 8080
@@ -89,9 +103,6 @@ empty database there:
 ./moviedb.exe --db-path "D:\MovieDB\data"
 ```
 
-This is a Go program with a browser based UI. While I have not tested it on Mac, it should need very few (if any) tweaks
-to run. The app has been tested on Windows with Chrome and Linux with Firefox.
-
 
 ## Use
 
@@ -101,23 +112,23 @@ The browser UI has three drag-sizable panes:
   - "Add movie titles" - Drop a list of movie titles here then click "Add movies" to bulk add using internet data, a dialog provides deconfliction and merge options when needed
   - "Search collection" - Enter a title, genre, year, actor, etc. (select from one or multiple fields) to find what you are looking for quickly
 - **Results list** - displays the movies matching the current search criteria
-  - "Sorted by" - Chooses the field to sort by
+  - "Sort by" - Chooses the field to sort by
   - "A-Z"/"Z-A" - Sets the search order increasing or decreasing
-  - "Ignore leading 'the'" - Optionally ignores a leading "the" in titles when sorting (e.g., when checked "The Matrix" would be sorted under "M" instead of "T")
-  - "Ignore leading 'a'" - Optionally ignores a leading "a" in titles when sorting (e.g., when checked "A Beautiful Mind" would be sorted under "B" instead of "A")
-  - "download list" - Allows you to download the current list as a CSV file
-  - Navigation - move up/down the list with arrow keys or press an alphanumeric key to jump through movies starting with that character
-- **Movie details** - shows detailed information about the movie currently selected in the Results List
+  - "ignore leading 'the'" - Optionally ignores a leading "the" in titles when sorting (when checked "The Matrix" would be sorted under "M" instead of "T")
+  - "ignore leading 'a'" - Optionally ignores a leading "a" in titles when sorting (when checked "A Beautiful Mind" would be sorted under "B" instead of "A")
+  - "download list" - Allows you to download the current movie list as a CSV file
+  - Navigation - arrow keys move up/down the list or press an alphanumeric key to jump through movies starting with that character
+- **Movie details** - shows detailed information about the movie currently selected in the Results list
   - "Sort Title" - If you populate the `Sort Title` field for a movie it will be sorted by this field rather than the Title during title sort
   - "New" - Allows you to create new movies manually (short cut: `Ins`)
   - You can always edit any field including cover art which you can drag/drop or copy/paste to update or use the COVER ART CHANGE/DELETE buttons
   - "Save changes" - Changes are lost when you navigate away from a movie unless you save (short cut: `Ctrl`/`Cmd`+`S`)
   - "Update from source" - Pulls fresh data from the internet for a movie, if you don't like it, don't save it (short cut: `Ctrl`/`Cmd`+`U`)
-  - "Delete" - To delete a movie altogether  (short cut: `Del`)
+  - "Delete" - To delete a movie altogether  (short cut: `Del`, did I mention you should backup you data directory?)
 
 ---
 
-![UI](./moviedb-screenshot-20260623.png)
+![UI](./moviedb-screenshot.png)
 
 ---
 

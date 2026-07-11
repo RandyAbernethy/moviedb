@@ -2,6 +2,12 @@
 
 A movie collection app for the disconnected.
 
+---
+
+![UI](./moviedb-screenshot.png)
+
+---
+
 The program consists of a backend movie database manager and a web based UI. The Go backend exposes its http interface
 at http://127.0.0.1:8765/moviedb/ (configurable) and presents a browser UI via embedded html/css/js. Movie data is
 stored by the backend in a movies.json file under `./data/` (also configurable) with cover art saved in discrete files
@@ -125,12 +131,6 @@ The browser UI has three drag-sizable panes:
   - "Save changes" - Changes are lost when you navigate away from a movie unless you save (short cut: `Ctrl`/`Cmd`+`S`)
   - "Update from source" - Pulls fresh data from the internet for a movie, if you don't like it, don't save it (short cut: `Ctrl`/`Cmd`+`U`)
   - "Delete" - To delete a movie altogether  (short cut: `Del`, did I mention you should backup you data directory?)
-
----
-
-![UI](./moviedb-screenshot.png)
-
----
 
 
 ## Internet data
